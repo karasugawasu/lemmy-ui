@@ -14,6 +14,7 @@ import {
   ListingType,
   MyUserInfo,
   PersonBlockView,
+  PersonSafe,
   PersonViewSafe,
   PostReportView,
   PostView,
@@ -281,6 +282,14 @@ export function mdToHtml(text: string) {
 
 export function getUnixTime(text: string): number {
   return text ? new Date(text).getTime() / 1000 : undefined;
+}
+
+export function futureDaysToUnixTime(days: number): number {
+  return days
+    ? Math.trunc(
+        new Date(Date.now() + 1000 * 60 * 60 * 24 * days).getTime() / 1000
+      )
+    : undefined;
 }
 
 export function canMod(
@@ -1500,4 +1509,17 @@ const SHORTNUM_SI_FORMAT = new Intl.NumberFormat("en-US", {
 
 export function numToSI(value: number): string {
   return SHORTNUM_SI_FORMAT.format(value);
+}
+
+export function isBanned(ps: PersonSafe): boolean {
+  // Add Z to convert from UTC date
+  if (ps.ban_expires) {
+    if (ps.banned && new Date(ps.ban_expires + "Z") > new Date()) {
+      return true;
+    } else {
+      return false;
+    }
+  } else {
+    return ps.banned;
+  }
 }

@@ -59,19 +59,19 @@
   height: auto;
 }
 
-.md-div h1 {
+h1 {
   font-size: 2rem;
 }
-.md-div h2 {
+h2 {
   font-size: 1.8rem;
 }
-.md-div h3 {
+h3 {
   font-size: 1.6rem;
 }
-.md-div h4 {
+h4 {
   font-size: 1.4rem;
 }
-.md-div h5 {
+h5 {
   font-size: 1.2rem;
 }
 
@@ -296,6 +296,11 @@ hr {
 pre {
   white-space: pre-wrap;
   word-break: keep-all;
+  max-width: 100%;
+  overflow: auto;
+  overflow-x: auto;
+  border: 1px solid var(--secondary);
+  border-radius: 5px;
 }
 
 .form-control.search-input {

@@ -59,20 +59,36 @@
   height: auto;
 }
 
-h1 {
+.md-div h1 {
   font-size: 2rem;
+  margin-top: 2rem;
+  margin-bottom: 0.5rem;
+  padding: 0.1em 0.4em;
+  background: transparent;
+  border-left: solid 5px var(--primary);
 }
-h2 {
+.md-div h2 {
   font-size: 1.8rem;
+  margin-top: 1.8rem;
+  margin-bottom: 0.5rem;
+  padding: 0.1em 0.3em;
+  background: transparent;
+  border-left: solid 4px var(--primary);
 }
-h3 {
+.md-div h3 {
   font-size: 1.6rem;
+  margin-top: 1.8rem;
+  margin-bottom: 0.5rem;
 }
-h4 {
+.md-div h4 {
   font-size: 1.4rem;
+  margin-top: 1.7rem;
+  margin-bottom: 0.5rem;
 }
-h5 {
+.md-div h5 {
   font-size: 1.2rem;
+  margin-top: 1.6rem;
+  margin-bottom: 0.5rem;
 }
 
 .md-div table {
@@ -297,6 +313,7 @@ pre {
   white-space: pre-wrap;
   word-break: keep-all;
   max-width: 100%;
+  padding:1rem 1.4rem;
   overflow: auto;
   overflow-x: auto;
   border: 1px solid var(--secondary);

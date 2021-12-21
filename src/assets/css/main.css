@@ -60,35 +60,69 @@
 }
 
 .md-div h1 {
+  color: var(--primary);
   font-size: 2rem;
-  margin-top: 2rem;
-  margin-bottom: 0.5rem;
-  padding: 0.1em 0.4em;
+  margin-top: 3rem;
+  margin-bottom: 1rem;
+  padding: 0.1em 0.3em;
   background: transparent;
   border-left: solid 5px var(--primary);
 }
 .md-div h2 {
+  color: var(--primary);
   font-size: 1.8rem;
-  margin-top: 1.8rem;
-  margin-bottom: 0.5rem;
+  margin-top: 2.5rem;
+  margin-bottom: 1rem;
   padding: 0.1em 0.3em;
   background: transparent;
   border-left: solid 4px var(--primary);
 }
 .md-div h3 {
+  color: var(--primary);
   font-size: 1.6rem;
-  margin-top: 1.8rem;
-  margin-bottom: 0.5rem;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
 }
 .md-div h4 {
+  color: var(--primary);
   font-size: 1.4rem;
-  margin-top: 1.7rem;
-  margin-bottom: 0.5rem;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
 }
 .md-div h5 {
+  color: var(--primary);
   font-size: 1.2rem;
-  margin-top: 1.6rem;
-  margin-bottom: 0.5rem;
+  margin-top: 1.8rem;
+  margin-bottom: 0.8rem;
+}
+
+.md-div pre{
+  white-space: pre;
+  padding: 1rem 1.4rem;
+  max-width: 100%;
+  overflow: auto;
+  overflow-x: auto;
+  border: 1px solid var(--secondary);
+  border-radius: 5px;
+}
+
+.md-dev code {
+  font-family: 'HackGenNerd Console', Menlo, Consolas, 'DejaVu Sans Mono';
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.md-div pre::-webkit-scrollbar-track {
+  background-color: var(--light);
+}
+.md-div pre::-webkit-scrollbar{
+  width: 0.8rem;
+  height:0.8rem;
+}
+.md-div pre::-webkit-scrollbar-thumb{
+  background: var(--secondary);
+  border-radius: 1rem;
+  box-shadow: none;
 }
 
 .md-div table {
@@ -312,12 +346,6 @@ hr {
 pre {
   white-space: pre-wrap;
   word-break: keep-all;
-  max-width: 100%;
-  padding:1rem 1.4rem;
-  overflow: auto;
-  overflow-x: auto;
-  border: 1px solid var(--secondary);
-  border-radius: 5px;
 }
 
 .form-control.search-input {

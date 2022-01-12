@@ -1,5 +1,6 @@
 import emojiShortName from "emoji-short-name";
 import ISO6391 from "iso-639-1";
+import "katex/dist/katex.js";
 import {
   BlockCommunityResponse,
   BlockPersonResponse,
@@ -27,10 +28,15 @@ import {
   WebSocketResponse,
 } from "lemmy-js-client";
 import markdown_it from "markdown-it";
+import markdown_it_anchor from "markdown-it-anchor";
 import markdown_it_container from "markdown-it-container";
+import markdown_it_footnote from "markdown-it-footnote";
 import markdown_it_html5_embed from "markdown-it-html5-embed";
 import markdown_it_sub from "markdown-it-sub";
 import markdown_it_sup from "markdown-it-sup";
+import markdown_it_table_of_contents from "markdown-it-table-of-contents";
+import markdown_it_texmath from "markdown-it-texmath";
+import "markdown-it-texmath/texmath.js";
 import moment from "moment";
 import "moment/locale/bg";
 import "moment/locale/bn";
@@ -220,6 +226,30 @@ export const md = new markdown_it({
 })
   .use(markdown_it_sub)
   .use(markdown_it_sup)
+  .use(markdown_it_footnote)
+  .use(markdown_it_table_of_contents, {
+    includeLevel: [2, 3],
+  })
+  .use(markdown_it_anchor, {
+    slugify: function (header) {
+      return encodeURI(
+        header
+          .trim()
+          .toLowerCase()
+          .replace(
+            /[\]\[\!\"\#\$\%\&\'\(\)\*\+\,\.\/\:\;\<\=\>\?\@\\\^\_\{\|\}\~]/g,
+            ""
+          )
+          .replace(/\s+/g, "-")
+      ) // Replace spaces with hyphens
+        .replace(/\-+$/, ""); // Replace trailing hyphen
+    },
+  })
+  .use(markdown_it_texmath, {
+    engine: require("katex"),
+    delimiters: "dollars",
+    katexOptions: { macros: { "\\RR": "\\mathbb{R}" } },
+  })
   .use(markdown_it_html5_embed, {
     html5embed: {
       useImageSyntax: true, // Enables video/audio embed with ![]() syntax (default)

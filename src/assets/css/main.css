@@ -60,40 +60,46 @@
 }
 
 .md-div h1 {
-  color: var(--primary);
   font-size: 2rem;
   margin-top: 3rem;
   margin-bottom: 1rem;
-  padding: 0.1em 0.3em;
+  padding: 0.2em 0.3em;
   background: transparent;
   border-left: solid 5px var(--primary);
+  border-bottom: 4px solid var(--primary);
 }
 .md-div h2 {
-  color: var(--primary);
   font-size: 1.8rem;
   margin-top: 2.5rem;
   margin-bottom: 1rem;
-  padding: 0.1em 0.3em;
+  padding: 0.2em 0.3em;
   background: transparent;
   border-left: solid 4px var(--primary);
+  border-bottom: 3px solid var(--primary);
 }
 .md-div h3 {
-  color: var(--primary);
   font-size: 1.6rem;
   margin-top: 2rem;
   margin-bottom: 1rem;
+  padding: 0.1em 0.3em;
+  background: transparent;
+  border-left: solid 2px var(--primary);
 }
 .md-div h4 {
-  color: var(--primary);
   font-size: 1.4rem;
   margin-top: 2rem;
   margin-bottom: 1rem;
+  padding: 0.1em 0.3em;
+  background: transparent;
+  border-left: solid 1px var(--primary);
 }
 .md-div h5 {
-  color: var(--primary);
   font-size: 1.2rem;
   margin-top: 1.8rem;
   margin-bottom: 0.8rem;
+  padding: 0.1em 0.3em;
+  background: transparent;
+  border-left: solid 1px var(--primary);
 }
 
 .md-div pre{

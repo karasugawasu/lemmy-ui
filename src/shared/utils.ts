@@ -15,10 +15,12 @@ import {
   ListingType,
   MyUserInfo,
   PersonBlockView,
+  PersonSafe,
   PersonViewSafe,
   PostReportView,
   PostView,
   PrivateMessageView,
+  RegistrationApplicationView,
   Search,
   SearchResponse,
   SearchType,
@@ -165,6 +167,8 @@ export const languages = [
   { code: "bn" },
   { code: "ml" },
   { code: "cs" },
+  { code: "as" },
+  { code: "lt" },
 ];
 
 export const themes = [
@@ -181,6 +185,7 @@ export const themes = [
   "vaporwave-dark",
   "i386",
   "litely",
+  "nord",
 ];
 
 const DEFAULT_ALPHABET =
@@ -313,6 +318,14 @@ export function getUnixTime(text: string): number {
   return text ? new Date(text).getTime() / 1000 : undefined;
 }
 
+export function futureDaysToUnixTime(days: number): number {
+  return days
+    ? Math.trunc(
+        new Date(Date.now() + 1000 * 60 * 60 * 24 * days).getTime() / 1000
+      )
+    : undefined;
+}
+
 export function canMod(
   myUserInfo: MyUserInfo,
   modIds: number[],
@@ -340,10 +353,8 @@ export function isMod(modIds: number[], creator_id: number): boolean {
   return modIds.includes(creator_id);
 }
 
-const imageRegex = new RegExp(
-  /(http)?s?:?(\/\/[^"']*\.(?:jpg|jpeg|gif|png|svg|webp))/
-);
-const videoRegex = new RegExp(`(http)?s?:?(\/\/[^"']*\.(?:mp4))`);
+const imageRegex = /(http)?s?:?(\/\/[^"']*\.(?:jpg|jpeg|gif|png|svg|webp))/;
+const videoRegex = /(http)?s?:?(\/\/[^"']*\.(?:mp4|webm))/;
 
 export function isImage(url: string) {
   return imageRegex.test(url);
@@ -572,6 +583,10 @@ export function getMomentLanguage(): string {
     lang = "ml";
   } else if (lang.startsWith("cs")) {
     lang = "cs";
+  } else if (lang.startsWith("as")) {
+    lang = "as";
+  } else if (lang.startsWith("lt")) {
+    lang = "lt";
   } else {
     lang = "en";
   }
@@ -1134,6 +1149,20 @@ export function updateCommentReportRes(
   }
 }
 
+export function updateRegistrationApplicationRes(
+  data: RegistrationApplicationView,
+  applications: RegistrationApplicationView[]
+) {
+  let found = applications.find(
+    ra => ra.registration_application.id == data.registration_application.id
+  );
+  if (found) {
+    found.registration_application = data.registration_application;
+    found.admin = data.admin;
+    found.creator_local_user = data.creator_local_user;
+  }
+}
+
 export function commentsToFlatNodes(comments: CommentView[]): CommentNodeI[] {
   let nodes: CommentNodeI[] = [];
   for (let comment of comments) {
@@ -1530,4 +1559,17 @@ const SHORTNUM_SI_FORMAT = new Intl.NumberFormat("en-US", {
 
 export function numToSI(value: number): string {
   return SHORTNUM_SI_FORMAT.format(value);
+}
+
+export function isBanned(ps: PersonSafe): boolean {
+  // Add Z to convert from UTC date
+  if (ps.ban_expires) {
+    if (ps.banned && new Date(ps.ban_expires + "Z") > new Date()) {
+      return true;
+    } else {
+      return false;
+    }
+  } else {
+    return ps.banned;
+  }
 }

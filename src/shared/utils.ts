@@ -36,7 +36,6 @@ import markdown_it_footnote from "markdown-it-footnote";
 import markdown_it_html5_embed from "markdown-it-html5-embed";
 import markdown_it_sub from "markdown-it-sub";
 import markdown_it_sup from "markdown-it-sup";
-import markdown_it_table_of_contents from "markdown-it-table-of-contents";
 import markdown_it_texmath from "markdown-it-texmath";
 import "markdown-it-texmath/texmath.js";
 import moment from "moment";
@@ -232,9 +231,6 @@ export const md = new markdown_it({
   .use(markdown_it_sub)
   .use(markdown_it_sup)
   .use(markdown_it_footnote)
-  .use(markdown_it_table_of_contents, {
-    includeLevel: [2, 3],
-  })
   .use(markdown_it_anchor, {
     slugify: function (header) {
       return encodeURI(
@@ -1133,7 +1129,7 @@ export function updatePostReportRes(
   data: PostReportView,
   reports: PostReportView[]
 ) {
-  let found = reports.find(p => p.post.id == data.post.id);
+  let found = reports.find(p => p.post_report.id == data.post_report.id);
   if (found) {
     found.post_report = data.post_report;
   }
@@ -1143,7 +1139,7 @@ export function updateCommentReportRes(
   data: CommentReportView,
   reports: CommentReportView[]
 ) {
-  let found = reports.find(c => c.comment.id == data.comment.id);
+  let found = reports.find(c => c.comment_report.id == data.comment_report.id);
   if (found) {
     found.comment_report = data.comment_report;
   }

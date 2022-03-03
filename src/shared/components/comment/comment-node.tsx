@@ -1,3 +1,4 @@
+import classNames from "classnames";
 import { Component, linkEvent } from "inferno";
 import { Link } from "inferno-router";
 import {
@@ -18,7 +19,6 @@ import {
   RemoveComment,
   SaveComment,
   TransferCommunity,
-  TransferSite,
 } from "lemmy-js-client";
 import moment from "moment";
 import { i18n } from "../../i18next";
@@ -686,51 +686,6 @@ export class CommentNode extends Component<CommentNodeProps, CommentNodeState> {
                                 ))}
                             </>
                           )}
-                          {/* Site Creator can transfer to another admin */}
-                          {this.amSiteCreator &&
-                            this.isAdmin &&
-                            cv.creator.local &&
-                            (!this.state.showConfirmTransferSite ? (
-                              <button
-                                class="btn btn-link btn-animate text-muted"
-                                onClick={linkEvent(
-                                  this,
-                                  this.handleShowConfirmTransferSite
-                                )}
-                                aria-label={i18n.t("transfer_site")}
-                              >
-                                {i18n.t("transfer_site")}
-                              </button>
-                            ) : (
-                              <>
-                                <button
-                                  class="btn btn-link btn-animate text-muted"
-                                  aria-label={i18n.t("are_you_sure")}
-                                >
-                                  {i18n.t("are_you_sure")}
-                                </button>
-                                <button
-                                  class="btn btn-link btn-animate text-muted"
-                                  onClick={linkEvent(
-                                    this,
-                                    this.handleTransferSite
-                                  )}
-                                  aria-label={i18n.t("yes")}
-                                >
-                                  {i18n.t("yes")}
-                                </button>
-                                <button
-                                  class="btn btn-link btn-animate text-muted"
-                                  onClick={linkEvent(
-                                    this,
-                                    this.handleCancelShowConfirmTransferSite
-                                  )}
-                                  aria-label={i18n.t("no")}
-                                >
-                                  {i18n.t("no")}
-                                </button>
-                              </>
-                            ))}
                         </>
                       )}
                     </>
@@ -895,14 +850,30 @@ export class CommentNode extends Component<CommentNodeProps, CommentNodeState> {
 
   linkBtn(small = false) {
     let cv = this.props.node.comment_view;
+    let classnames = classNames("btn btn-link btn-animate text-muted", {
+      "btn-sm": small,
+    });
+
+    let title = this.props.showContext
+      ? i18n.t("show_context")
+      : i18n.t("link");
+
     return (
-      <Link
-        className={`btn ${small && "btn-sm"} btn-link btn-animate text-muted`}
-        to={`/post/${cv.post.id}/comment/${cv.comment.id}`}
-        title={this.props.showContext ? i18n.t("show_context") : i18n.t("link")}
-      >
-        <Icon icon="link" classes="icon-inline" />
-      </Link>
+      <>
+        <Link
+          className={classnames}
+          to={`/post/${cv.post.id}/comment/${cv.comment.id}`}
+          title={title}
+        >
+          <Icon icon="link" classes="icon-inline" />
+        </Link>
+        {/* TODO comment ap_ids are currently broken anyway, so use post.ap_id, and wait until comment tree / endpoint refactor */}
+        {!cv.comment.local && (
+          <a className={classnames} title={title} href={cv.post.ap_id}>
+            <Icon icon="fedilink" classes="icon-inline" />
+          </a>
+        )}
+      </>
     );
   }
 
@@ -1335,16 +1306,6 @@ export class CommentNode extends Component<CommentNodeProps, CommentNodeState> {
   }
 
   handleCancelShowConfirmTransferSite(i: CommentNode) {
-    i.state.showConfirmTransferSite = false;
-    i.setState(i.state);
-  }
-
-  handleTransferSite(i: CommentNode) {
-    let form: TransferSite = {
-      person_id: i.props.node.comment_view.creator.id,
-      auth: authField(),
-    };
-    WebSocketService.Instance.send(wsClient.transferSite(form));
     i.state.showConfirmTransferSite = false;
     i.setState(i.state);
   }

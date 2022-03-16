@@ -35,6 +35,7 @@ import markdown_it_footnote from "markdown-it-footnote";
 import markdown_it_html5_embed from "markdown-it-html5-embed";
 import markdown_it_sub from "markdown-it-sub";
 import markdown_it_sup from "markdown-it-sup";
+import markdown_it_table_of_contents from "markdown-it-table-of-contents";
 import markdown_it_texmath from "markdown-it-texmath";
 import "markdown-it-texmath/texmath.js";
 import moment from "moment";
@@ -124,6 +125,9 @@ export const md = new markdown_it({
 })
   .use(markdown_it_sub)
   .use(markdown_it_sup)
+  .use(markdown_it_table_of_contents, {
+    includeLevel: [2, 3],
+  })
   .use(markdown_it_footnote)
   .use(markdown_it_anchor, {
     slugify: function (header) {

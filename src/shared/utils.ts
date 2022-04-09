@@ -1363,3 +1363,9 @@ export function isBanned(ps: PersonSafe): boolean {
     return ps.banned;
   }
 }
+
+export function pushNotNull(array: any[], new_item?: any) {
+  if (new_item) {
+    array.push(...new_item);
+  }
+}

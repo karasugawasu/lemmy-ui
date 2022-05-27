@@ -1,5 +1,4 @@
 import emojiShortName from "emoji-short-name";
-import "katex/dist/katex.js";
 import {
   BlockCommunityResponse,
   BlockPersonResponse,
@@ -35,8 +34,6 @@ import markdown_it_html5_embed from "markdown-it-html5-embed";
 import markdown_it_sub from "markdown-it-sub";
 import markdown_it_sup from "markdown-it-sup";
 import markdown_it_table_of_contents from "markdown-it-table-of-contents";
-import markdown_it_texmath from "markdown-it-texmath";
-import "markdown-it-texmath/texmath.js";
 import moment from "moment";
 import { Subscription } from "rxjs";
 import { delay, retryWhen, take } from "rxjs/operators";
@@ -142,11 +139,6 @@ export const md = new markdown_it({
       ) // Replace spaces with hyphens
         .replace(/\-+$/, ""); // Replace trailing hyphen
     },
-  })
-  .use(markdown_it_texmath, {
-    engine: require("katex"),
-    delimiters: "dollars",
-    katexOptions: { macros: { "\\RR": "\\mathbb{R}" } },
   })
   .use(markdown_it_html5_embed, {
     html5embed: {

@@ -11,7 +11,7 @@ import process from "process";
 import serialize from "serialize-javascript";
 import { App } from "../shared/components/app/app";
 import { SYMBOLS } from "../shared/components/common/symbols";
-import { httpBaseInternal } from "../shared/env";
+import { httpBaseInternal, wsUriBase } from "../shared/env";
 import {
   ILemmyConfig,
   InitialFetchRequest,
@@ -26,6 +26,17 @@ const [hostname, port] = process.env["LEMMY_UI_HOST"]
   : ["0.0.0.0", "1234"];
 const extraThemesFolder =
   process.env["LEMMY_UI_EXTRA_THEMES_FOLDER"] || "./extra_themes";
+
+if (!process.env["LEMMY_UI_DEBUG"]) {
+  server.use(function (_req, res, next) {
+    res.setHeader(
+      "Content-Security-Policy",
+      `default-src 'none'; connect-src 'self' ${wsUriBase}; img-src * data:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; form-action 'self'; base-uri 'self'`
+    );
+    next();
+  });
+}
+const customHtmlHeader = process.env["LEMMY_UI_CUSTOM_HTML_HEADER"] || "";
 
 server.use(express.json());
 server.use(express.urlencoded({ extended: false }));
@@ -74,12 +85,14 @@ function buildThemeList(): string[] {
     "united",
     "cyborg",
     "darkly",
+    "darkly-red",
     "journal",
     "sketchy",
     "vaporwave",
     "vaporwave-dark",
     "i386",
     "litely",
+    "litely-red",
     "nord",
   ];
   if (fs.existsSync(extraThemesFolder)) {
@@ -164,18 +177,15 @@ server.get("/*", async (req, res) => {
       return res.redirect(context.url);
     }
 
-    const cspHtml = (
-      <meta
-        http-equiv="Content-Security-Policy"
-        content="default-src data: 'self'; connect-src * ws: wss:; frame-src *; img-src * data:; script-src 'self'; style-src 'self' 'unsafe-inline'; manifest-src 'self'"
-      />
+    const eruda = (
+      <>
+        <script src="//cdn.jsdelivr.net/npm/eruda"></script>
+        <script>eruda.init();</script>
+      </>
     );
-
+    const erudaStr = process.env["LEMMY_UI_DEBUG"] ? renderToString(eruda) : "";
     const root = renderToString(wrapper);
     const symbols = renderToString(SYMBOLS);
-    const cspStr = process.env.LEMMY_EXTERNAL_HOST
-      ? renderToString(cspHtml)
-      : "";
     const helmet = Helmet.renderStatic();
 
     const config: ILemmyConfig = { wsHost: process.env.LEMMY_WS_HOST };
@@ -187,10 +197,11 @@ server.get("/*", async (req, res) => {
            <script>window.isoData = ${serialize(isoData)}</script>
            <script>window.lemmyConfig = ${serialize(config)}</script>
 
-           <!-- A remote debugging utility for mobile
-           <script src="//cdn.jsdelivr.net/npm/eruda"></script>
-           <script>eruda.init();</script>
-           -->
+           <!-- A remote debugging utility for mobile -->
+           ${erudaStr}
+
+           <!-- Custom injected script -->
+           ${customHtmlHeader}
 
            ${helmet.title.toString()}
            ${helmet.meta.toString()}
@@ -199,9 +210,6 @@ server.get("/*", async (req, res) => {
            <meta name="Description" content="Lemmy">
            <meta charset="utf-8">
            <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-
-           <!-- Content Security Policy -->
-           ${cspStr}
 
            <!-- Web app manifest -->
            <link rel="manifest" href="/static/assets/manifest.webmanifest">

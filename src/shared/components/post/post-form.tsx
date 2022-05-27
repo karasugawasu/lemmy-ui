@@ -600,7 +600,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
             } catch (err) {
               console.log(err);
             }
-          }, 400),
+          }),
           false
         );
       }
@@ -636,7 +636,8 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
     let op = wsUserOp(msg);
     console.log(msg);
     if (msg.error) {
-      toast(i18n.t(msg.error), "danger");
+      // Errors handled by top level pages
+      // toast(i18n.t(msg.error), "danger");
       this.state.loading = false;
       this.setState(this.state);
       return;

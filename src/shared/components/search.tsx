@@ -403,6 +403,7 @@ export class Search extends Component<any, SearchState> {
           <ListingTypeSelect
             type_={this.state.listingType}
             showLocal={showLocal(this.isoData)}
+            showSubscribed
             onChange={this.handleListingTypeChange}
           />
         </span>
@@ -778,7 +779,7 @@ export class Search extends Component<any, SearchState> {
             } catch (err) {
               console.error(err);
             }
-          }, 400),
+          }),
           false
         );
       }
@@ -808,7 +809,7 @@ export class Search extends Component<any, SearchState> {
             } catch (err) {
               console.log(err);
             }
-          }, 400),
+          }),
           false
         );
       }

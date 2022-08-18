@@ -31,7 +31,7 @@ if (!process.env["LEMMY_UI_DEBUG"]) {
   server.use(function (_req, res, next) {
     res.setHeader(
       "Content-Security-Policy",
-      `default-src 'none'; connect-src *; img-src * data:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; form-action 'self'; base-uri 'self'; frame-src https://www.youtube.com https://fedimovie.com; manifest-src 'self'`
+      `default-src 'none'; connect-src *; img-src * data:; script-src https://platform.twitter.com 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; form-action 'self'; base-uri 'self'; frame-src https://platform.twitter.com/ https://www.youtube.com https://fedimovie.com; manifest-src 'self'`
     );
     next();
   });

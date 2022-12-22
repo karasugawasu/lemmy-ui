@@ -139,6 +139,12 @@ export const md = new markdown_it({
       ) // Replace spaces with hyphens
         .replace(/\-+$/, ""); // Replace trailing hyphen
     },
+    permalink: markdown_it_anchor.permalink.linkInsideHeader({
+      symbol: `
+      <svg class="icon anchor-icon" aria-hidden="true"><use xlink:href="#icon-link"></use></svg>
+    `,
+      placement: "before",
+    }),
   })
   .use(markdown_it_html5_embed, {
     html5embed: {

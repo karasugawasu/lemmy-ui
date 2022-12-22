@@ -45,6 +45,7 @@
 }
 
 .md-div p {
+  margin-left: 0.75rem;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -57,59 +58,54 @@
   max-height: 40vh;
   max-width: 100%;
   height: auto;
+  margin-left: 0.75rem;
 }
 
 .md-div h1 {
-  font-size: 1.6rem;
+  font-size: 1.8rem;
   font-weight: bold;
-  margin-top: 3.5rem;
-  margin-bottom: 1.5rem;
-  padding: 0.3em 0.5em;
+  margin-top: 1.8rem;
+  margin-bottom: 1rem;
+  padding: 0em 0.25em;
   background: transparent;
-  border-left: solid 3px var(--primary);
-  border-bottom: 2px solid var(--primary);  
 }
 .md-div h2 {
-  font-size: 1.5rem;
+  font-size: 1.65rem;
   font-weight: bold;
-  margin-top: 3.5rem;
-  margin-bottom: 1.5rem;
-  padding: 0.3em 0.5em;
+  margin-top: 1.8rem;
+  margin-bottom: 1rem;
+  padding: 0em 0.25em;
   background: transparent;
-  border-left: solid 2px var(--primary);
-  border-bottom: solid 2px var(--primary);
 }
 .md-div h3 {
-  font-size: 1.4rem;
+  font-size: 1.55rem;
   font-weight: bold;
-  margin-top: 3rem;
-  margin-bottom: 1.5rem;
-  padding: 0.2em 0.5em;
+  margin-top: 1.8rem;
+  margin-bottom: 1rem;
+  padding: 0em 0.25em;
   background: transparent;
-  border-left: solid 2px var(--primary);
 }
 .md-div h4 {
-  font-size: 1.3rem;
+  font-size: 1.35rem;
   font-weight: bold;
-  margin-top: 2.5rem;
-  margin-bottom: 1.25rem;
-  padding: 0.2em 0.5em;
+  margin-top: 1.8rem;
+  margin-bottom: 1rem;
+  padding: 0em 0.25em;
   background: transparent;
-  border-left: solid 1px var(--primary);
 }
 .md-div h5 {
   font-size: 1.2rem;
-  font-weight: 500;
-  margin-top: 2.5rem;
+  font-weight: 600;
+  margin-top: 1.8rem;
   margin-bottom: 1rem;
-  padding: 0.2em 0.5em;
+  padding: 0em 0.25em;
   background: transparent;
-  border-left: solid 1px var(--primary);
 }
 
 .md-div pre{
   white-space: pre;
   padding: 1rem 1.4rem;
+  margin-left: 0.75rem;
   max-width: 100%;
   overflow: auto;
   overflow-x: auto;

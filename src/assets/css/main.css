@@ -459,7 +459,7 @@ br.big {
   right: 0;
   z-index: 9999;
 }
-.md-div figure:target #overlay{
+.md-div figure:target .overlay{
   position: absolute;
   top: 0;
   bottom: 0;
@@ -469,14 +469,14 @@ br.big {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  background: rgba(255, 255, 255, 0.2);
+  background: rgb(84 84 84 / 40%);
   text-decoration: none;
   color: inherit;
 }
 .md-div figure:target img{
   animation: fadein .3s;
 }
-.md-div #overlay img{
+.md-div .overlay img{
   max-height: 80%;
   max-width: 80%;
 }

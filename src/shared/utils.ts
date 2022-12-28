@@ -127,7 +127,17 @@ export const md = new markdown_it({
     md.renderer.rules.image = function (tokens, idx, options, env, self) {
       const imageTag = originalRule(tokens, idx, options, env, self);
       const token = tokens[idx];
-      return `<a href="#figure">${imageTag}</a><figure id="figure"><a id="overlay" href="#overlay">${imageTag}</a></figure>`;
+      const filepath = token.attrs[token.attrIndex("src")][1];
+      const matchedFileName =
+        filepath.match(
+          /^(?:[^:\/?#]+:)?(?:\/\/[^\/?#]*)?(?:([^?#]*\/)([^\/?#]*))?(\?[^#]*)?(?:#.*)?$/
+        ) ?? [];
+      const [, dir, fileName, query] = matchedFileName.map(
+        match => match ?? ""
+      );
+      const matchedExt = fileName.match(/^(.+?)(\.[^.]+)?$/) ?? [];
+      const [, name, ext] = matchedExt.map(match => match ?? "");
+      return `<a href="#figure-${name}">${imageTag}</a><figure id="figure-${name}"><a class="overlay" id="overlay-${name}" href="#overlay-${name}">${imageTag}</a></figure>`;
     };
   })
   .use(markdown_it_sub)

@@ -1,4 +1,4 @@
-import { imageSize, taskLists } from "@hedgedoc/markdown-it-plugins";
+import { taskLists } from "@hedgedoc/markdown-it-plugins";
 import emojiShortName from "emoji-short-name";
 import {
   BlockCommunityResponse,
@@ -127,9 +127,7 @@ export const md = new markdown_it({
     md.renderer.rules.image = function (tokens, idx, options, env, self) {
       const imageTag = originalRule(tokens, idx, options, env, self);
       const token = tokens[idx];
-      return `<a href="${
-        token.attrs[token.attrIndex("src")][1]
-      }" data-lightbox="image">${imageTag}</a>`;
+      return `<a href="#figure">${imageTag}</a><figure id="figure"><a id="overlay" href="#overlay">${imageTag}</a></figure>`;
     };
   })
   .use(markdown_it_sub)
@@ -160,7 +158,6 @@ export const md = new markdown_it({
     }),
   })
   .use(markdown_it_mathjax3)
-  .use(imageSize)
   .use(taskLists)
   .use(markdown_it_mark)
   .use(markdown_it_html5_embed, {

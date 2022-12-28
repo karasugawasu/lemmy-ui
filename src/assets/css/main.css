@@ -60,7 +60,7 @@
 
 .md-div img {
   max-height: 40vh;
-  max-width: 100%;
+  max-width: 90%;
   height: auto;
   margin-left: 0.75rem;
 }
@@ -444,4 +444,49 @@ br.big {
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
+}
+
+.md-div figure{
+  margin: 0;
+  display: none;
+}
+.md-div figure:target{
+  display: block;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+}
+.md-div figure:target #overlay{
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.2);
+  text-decoration: none;
+  color: inherit;
+}
+.md-div figure:target img{
+  animation: fadein .3s;
+}
+.md-div #overlay img{
+  max-height: 80%;
+  max-width: 80%;
+}
+@keyframes fadein{
+  0%{
+    transform: scale(0.2);
+    opacity: 0.2;
+  }
+  100%{
+    transform: scale(1);
+    opacity: 1;
+  }
 }

@@ -54,6 +54,10 @@
   margin-bottom: 0px;
 }
 
+.md-div mark {
+  background-color: #ffde53a8;
+}
+
 .md-div img {
   max-height: 40vh;
   max-width: 100%;

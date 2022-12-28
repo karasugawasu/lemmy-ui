@@ -122,6 +122,16 @@ export const md = new markdown_it({
   linkify: true,
   typographer: true,
 })
+  .use(md => {
+    const originalRule = md.renderer.rules.image;
+    md.renderer.rules.image = function (tokens, idx, options, env, self) {
+      const imageTag = originalRule(tokens, idx, options, env, self);
+      const token = tokens[idx];
+      return `<a href="${
+        token.attrs[token.attrIndex("src")][1]
+      }" data-lightbox="image">${imageTag}</a>`;
+    };
+  })
   .use(markdown_it_sub)
   .use(markdown_it_sup)
   .use(markdown_it_table_of_contents, {

@@ -1,3 +1,4 @@
+import { imageSize, taskLists } from "@hedgedoc/markdown-it-plugins";
 import emojiShortName from "emoji-short-name";
 import {
   BlockCommunityResponse,
@@ -31,6 +32,8 @@ import markdown_it_anchor from "markdown-it-anchor";
 import markdown_it_container from "markdown-it-container";
 import markdown_it_footnote from "markdown-it-footnote";
 import markdown_it_html5_embed from "markdown-it-html5-embed";
+import markdown_it_mark from "markdown-it-mark";
+import markdown_it_mathjax3 from "markdown-it-mathjax3";
 import markdown_it_sub from "markdown-it-sub";
 import markdown_it_sup from "markdown-it-sup";
 import markdown_it_table_of_contents from "markdown-it-table-of-contents";
@@ -146,6 +149,10 @@ export const md = new markdown_it({
       placement: "before",
     }),
   })
+  .use(markdown_it_mathjax3)
+  .use(imageSize)
+  .use(taskLists)
+  .use(markdown_it_mark)
   .use(markdown_it_html5_embed, {
     html5embed: {
       useImageSyntax: true, // Enables video/audio embed with ![]() syntax (default)

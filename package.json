@@ -17,6 +17,7 @@
   },
   "repository": "https://github.com/LemmyNet/lemmy-ui",
   "dependencies": {
+    "@hedgedoc/markdown-it-plugins": "^2.0.0",
     "@typescript-eslint/parser": "^5.21.0",
     "autosize": "^5.0.1",
     "check-password-strength": "^2.0.5",
@@ -39,6 +40,8 @@
     "markdown-it-container": "^3.0.0",
     "markdown-it-footnote": "^3.0.3",
     "markdown-it-html5-embed": "^1.0.0",
+    "markdown-it-mark": "^3.0.1",
+    "markdown-it-mathjax3": "^4.3.2",
     "markdown-it-sub": "^1.0.0",
     "markdown-it-sup": "^1.0.0",
     "markdown-it-table-of-contents": "^0.6.0",

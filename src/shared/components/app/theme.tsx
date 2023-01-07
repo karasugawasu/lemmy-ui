@@ -1,18 +1,17 @@
 import { Component } from "inferno";
 import { Helmet } from "inferno-helmet";
-import { MyUserInfo } from "lemmy-js-client";
+import { UserService } from "../../services";
 
 interface Props {
-  myUserInfo: MyUserInfo | undefined;
-  defaultTheme?: string;
+  defaultTheme: string;
 }
 
 export class Theme extends Component<Props> {
   render() {
-    let user = this.props.myUserInfo;
-    let hasTheme = user && user.local_user_view.local_user.theme !== "browser";
+    let user = UserService.Instance.myUserInfo;
+    let hasTheme = user?.local_user_view.local_user.theme !== "browser";
 
-    if (hasTheme) {
+    if (user && hasTheme) {
       return (
         <Helmet>
           <link
@@ -22,10 +21,7 @@ export class Theme extends Component<Props> {
           />
         </Helmet>
       );
-    } else if (
-      this.props.defaultTheme != null &&
-      this.props.defaultTheme != "browser"
-    ) {
+    } else if (this.props.defaultTheme != "browser") {
       return (
         <Helmet>
           <link

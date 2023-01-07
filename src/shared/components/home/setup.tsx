@@ -1,41 +1,53 @@
 import { Component, linkEvent } from "inferno";
 import { Helmet } from "inferno-helmet";
-import { LoginResponse, Register, UserOperation } from "lemmy-js-client";
+import {
+  GetSiteResponse,
+  LoginResponse,
+  Register,
+  UserOperation,
+  wsJsonToRes,
+  wsUserOp,
+} from "lemmy-js-client";
 import { Subscription } from "rxjs";
 import { delay, retryWhen, take } from "rxjs/operators";
 import { i18n } from "../../i18next";
 import { UserService, WebSocketService } from "../../services";
-import { toast, wsClient, wsJsonToRes, wsUserOp } from "../../utils";
+import { setIsoData, toast, wsClient } from "../../utils";
 import { Spinner } from "../common/icon";
 import { SiteForm } from "./site-form";
 
 interface State {
-  userForm: Register;
+  form: {
+    username?: string;
+    email?: string;
+    password?: string;
+    password_verify?: string;
+    show_nsfw: boolean;
+    captcha_uuid?: string;
+    captcha_answer?: string;
+    honeypot?: string;
+    answer?: string;
+  };
   doneRegisteringUser: boolean;
   userLoading: boolean;
+  siteRes: GetSiteResponse;
 }
 
 export class Setup extends Component<any, State> {
   private subscription: Subscription;
+  private isoData = setIsoData(this.context);
 
-  private emptyState: State = {
-    userForm: {
-      username: undefined,
-      password: undefined,
-      password_verify: undefined,
+  state: State = {
+    form: {
       show_nsfw: true,
-      // The first admin signup doesn't need a captcha
-      captcha_uuid: "",
-      captcha_answer: "",
     },
-    doneRegisteringUser: false,
+    doneRegisteringUser: !!UserService.Instance.myUserInfo,
     userLoading: false,
+    siteRes: this.isoData.site_res,
   };
 
   constructor(props: any, context: any) {
     super(props, context);
-
-    this.state = this.emptyState;
 
     this.subscription = WebSocketService.Instance.subject
       .pipe(retryWhen(errors => errors.pipe(delay(3000), take(10))))
@@ -56,15 +68,15 @@ export class Setup extends Component<any, State> {
 
   render() {
     return (
-      <div class="container">
+      <div className="container-lg">
         <Helmet title={this.documentTitle} />
-        <div class="row">
-          <div class="col-12 offset-lg-3 col-lg-6">
+        <div className="row">
+          <div className="col-12 offset-lg-3 col-lg-6">
             <h3>{i18n.t("lemmy_instance_setup")}</h3>
             {!this.state.doneRegisteringUser ? (
               this.registerUser()
             ) : (
-              <SiteForm showLocal />
+              <SiteForm siteRes={this.state.siteRes} showLocal />
             )}
           </div>
         </div>
@@ -76,16 +88,16 @@ export class Setup extends Component<any, State> {
     return (
       <form onSubmit={linkEvent(this, this.handleRegisterSubmit)}>
         <h5>{i18n.t("setup_admin")}</h5>
-        <div class="form-group row">
-          <label class="col-sm-2 col-form-label" htmlFor="username">
+        <div className="form-group row">
+          <label className="col-sm-2 col-form-label" htmlFor="username">
             {i18n.t("username")}
           </label>
-          <div class="col-sm-10">
+          <div className="col-sm-10">
             <input
               type="text"
-              class="form-control"
+              className="form-control"
               id="username"
-              value={this.state.userForm.username}
+              value={this.state.form.username}
               onInput={linkEvent(this, this.handleRegisterUsernameChange)}
               required
               minLength={3}
@@ -93,34 +105,34 @@ export class Setup extends Component<any, State> {
             />
           </div>
         </div>
-        <div class="form-group row">
-          <label class="col-sm-2 col-form-label" htmlFor="email">
+        <div className="form-group row">
+          <label className="col-sm-2 col-form-label" htmlFor="email">
             {i18n.t("email")}
           </label>
 
-          <div class="col-sm-10">
+          <div className="col-sm-10">
             <input
               type="email"
               id="email"
-              class="form-control"
+              className="form-control"
               placeholder={i18n.t("optional")}
-              value={this.state.userForm.email}
+              value={this.state.form.email}
               onInput={linkEvent(this, this.handleRegisterEmailChange)}
               minLength={3}
             />
           </div>
         </div>
-        <div class="form-group row">
-          <label class="col-sm-2 col-form-label" htmlFor="password">
+        <div className="form-group row">
+          <label className="col-sm-2 col-form-label" htmlFor="password">
             {i18n.t("password")}
           </label>
-          <div class="col-sm-10">
+          <div className="col-sm-10">
             <input
               type="password"
               id="password"
-              value={this.state.userForm.password}
+              value={this.state.form.password}
               onInput={linkEvent(this, this.handleRegisterPasswordChange)}
-              class="form-control"
+              className="form-control"
               required
               autoComplete="new-password"
               minLength={10}
@@ -128,17 +140,17 @@ export class Setup extends Component<any, State> {
             />
           </div>
         </div>
-        <div class="form-group row">
-          <label class="col-sm-2 col-form-label" htmlFor="verify-password">
+        <div className="form-group row">
+          <label className="col-sm-2 col-form-label" htmlFor="verify-password">
             {i18n.t("verify_password")}
           </label>
-          <div class="col-sm-10">
+          <div className="col-sm-10">
             <input
               type="password"
               id="verify-password"
-              value={this.state.userForm.password_verify}
+              value={this.state.form.password_verify}
               onInput={linkEvent(this, this.handleRegisterPasswordVerifyChange)}
-              class="form-control"
+              className="form-control"
               required
               autoComplete="new-password"
               minLength={10}
@@ -146,9 +158,9 @@ export class Setup extends Component<any, State> {
             />
           </div>
         </div>
-        <div class="form-group row">
-          <div class="col-sm-10">
-            <button type="submit" class="btn btn-secondary">
+        <div className="form-group row">
+          <div className="col-sm-10">
+            <button type="submit" className="btn btn-secondary">
               {this.state.userLoading ? <Spinner /> : i18n.t("sign_up")}
             </button>
           </div>
@@ -159,29 +171,42 @@ export class Setup extends Component<any, State> {
 
   handleRegisterSubmit(i: Setup, event: any) {
     event.preventDefault();
-    i.state.userLoading = true;
-    i.setState(i.state);
+    i.setState({ userLoading: true });
     event.preventDefault();
-    WebSocketService.Instance.send(wsClient.register(i.state.userForm));
+    let cForm = i.state.form;
+    if (cForm.username && cForm.password && cForm.password_verify) {
+      let form: Register = {
+        username: cForm.username,
+        password: cForm.password,
+        password_verify: cForm.password_verify,
+        email: cForm.email,
+        show_nsfw: cForm.show_nsfw,
+        captcha_uuid: cForm.captcha_uuid,
+        captcha_answer: cForm.captcha_answer,
+        honeypot: cForm.honeypot,
+        answer: cForm.answer,
+      };
+      WebSocketService.Instance.send(wsClient.register(form));
+    }
   }
 
   handleRegisterUsernameChange(i: Setup, event: any) {
-    i.state.userForm.username = event.target.value;
+    i.state.form.username = event.target.value;
     i.setState(i.state);
   }
 
   handleRegisterEmailChange(i: Setup, event: any) {
-    i.state.userForm.email = event.target.value;
+    i.state.form.email = event.target.value;
     i.setState(i.state);
   }
 
   handleRegisterPasswordChange(i: Setup, event: any) {
-    i.state.userForm.password = event.target.value;
+    i.state.form.password = event.target.value;
     i.setState(i.state);
   }
 
   handleRegisterPasswordVerifyChange(i: Setup, event: any) {
-    i.state.userForm.password_verify = event.target.value;
+    i.state.form.password_verify = event.target.value;
     i.setState(i.state);
   }
 
@@ -189,15 +214,15 @@ export class Setup extends Component<any, State> {
     let op = wsUserOp(msg);
     if (msg.error) {
       toast(i18n.t(msg.error), "danger");
-      this.state.userLoading = false;
-      this.setState(this.state);
+      this.setState({ userLoading: false });
       return;
     } else if (op == UserOperation.Register) {
-      let data = wsJsonToRes<LoginResponse>(msg).data;
-      this.state.userLoading = false;
-      this.state.doneRegisteringUser = true;
+      let data = wsJsonToRes<LoginResponse>(msg);
+      this.setState({ userLoading: false });
       UserService.Instance.login(data);
-      this.setState(this.state);
+      if (UserService.Instance.jwtInfo) {
+        this.setState({ doneRegisteringUser: true });
+      }
     } else if (op == UserOperation.CreateSite) {
       window.location.href = "/";
     }

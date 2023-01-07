@@ -12,14 +12,14 @@ export class BannerIconHeader extends Component<BannerIconHeaderProps, any> {
   }
 
   render() {
+    let banner = this.props.banner;
+    let icon = this.props.icon;
     return (
-      <div class="position-relative mb-2">
-        {this.props.banner && (
-          <PictrsImage src={this.props.banner} banner alt="" />
-        )}
-        {this.props.icon && (
+      <div className="position-relative mb-2">
+        {banner && <PictrsImage src={banner} banner alt="" />}
+        {icon && (
           <PictrsImage
-            src={this.props.icon}
+            src={icon}
             iconOverlay
             pushup={!!this.props.banner}
             alt=""

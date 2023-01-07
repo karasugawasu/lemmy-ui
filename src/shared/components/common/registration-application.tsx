@@ -6,7 +6,7 @@ import {
 } from "lemmy-js-client";
 import { i18n } from "../../i18next";
 import { WebSocketService } from "../../services";
-import { authField, mdToHtml, wsClient } from "../../utils";
+import { mdToHtml, myAuth, wsClient } from "../../utils";
 import { PersonListing } from "../person/person-listing";
 import { MarkdownTextArea } from "./markdown-textarea";
 import { MomentTime } from "./moment-time";
@@ -24,15 +24,13 @@ export class RegistrationApplication extends Component<
   RegistrationApplicationProps,
   RegistrationApplicationState
 > {
-  private emptyState: RegistrationApplicationState = {
+  state: RegistrationApplicationState = {
     denyReason: this.props.application.registration_application.deny_reason,
     denyExpanded: false,
   };
 
   constructor(props: any, context: any) {
     super(props, context);
-
-    this.state = this.emptyState;
     this.handleDenyReasonChange = this.handleDenyReasonChange.bind(this);
   }
 
@@ -47,7 +45,7 @@ export class RegistrationApplication extends Component<
           {i18n.t("applicant")}: <PersonListing person={a.creator} />
         </div>
         <div>
-          {i18n.t("created")}: <MomentTime showAgo data={ra} />
+          {i18n.t("created")}: <MomentTime showAgo published={ra.published} />
         </div>
         <div>{i18n.t("answer")}:</div>
         <div className="md-div" dangerouslySetInnerHTML={mdToHtml(ra.answer)} />
@@ -65,28 +63,32 @@ export class RegistrationApplication extends Component<
                   #
                   <PersonListing person={a.admin} />
                 </T>
-                <div>
-                  {i18n.t("deny_reason")}:{" "}
-                  <div
-                    className="md-div d-inline-flex"
-                    dangerouslySetInnerHTML={mdToHtml(ra.deny_reason || "")}
-                  />
-                </div>
+                {ra.deny_reason && (
+                  <div>
+                    {i18n.t("deny_reason")}:{" "}
+                    <div
+                      className="md-div d-inline-flex"
+                      dangerouslySetInnerHTML={mdToHtml(ra.deny_reason)}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>
         )}
 
         {this.state.denyExpanded && (
-          <div class="form-group row">
-            <label class="col-sm-2 col-form-label">
+          <div className="form-group row">
+            <label className="col-sm-2 col-form-label">
               {i18n.t("deny_reason")}
             </label>
-            <div class="col-sm-10">
+            <div className="col-sm-10">
               <MarkdownTextArea
                 initialContent={this.state.denyReason}
                 onContentChange={this.handleDenyReasonChange}
                 hideNavigationWarnings
+                allLanguages={[]}
+                siteLanguages={[]}
               />
             </div>
           </div>
@@ -114,37 +116,41 @@ export class RegistrationApplication extends Component<
   }
 
   handleApprove(i: RegistrationApplication) {
-    i.setState({ denyExpanded: false });
-    let form: ApproveRegistrationApplication = {
-      id: i.props.application.registration_application.id,
-      deny_reason: "",
-      approve: true,
-      auth: authField(),
-    };
-    WebSocketService.Instance.send(
-      wsClient.approveRegistrationApplication(form)
-    );
+    let auth = myAuth();
+    if (auth) {
+      i.setState({ denyExpanded: false });
+      let form: ApproveRegistrationApplication = {
+        id: i.props.application.registration_application.id,
+        approve: true,
+        auth,
+      };
+      WebSocketService.Instance.send(
+        wsClient.approveRegistrationApplication(form)
+      );
+    }
   }
 
   handleDeny(i: RegistrationApplication) {
     if (i.state.denyExpanded) {
       i.setState({ denyExpanded: false });
-      let form: ApproveRegistrationApplication = {
-        id: i.props.application.registration_application.id,
-        approve: false,
-        deny_reason: i.state.denyReason,
-        auth: authField(),
-      };
-      WebSocketService.Instance.send(
-        wsClient.approveRegistrationApplication(form)
-      );
+      let auth = myAuth();
+      if (auth) {
+        let form: ApproveRegistrationApplication = {
+          id: i.props.application.registration_application.id,
+          approve: false,
+          deny_reason: i.state.denyReason,
+          auth,
+        };
+        WebSocketService.Instance.send(
+          wsClient.approveRegistrationApplication(form)
+        );
+      }
     } else {
       i.setState({ denyExpanded: true });
     }
   }
 
   handleDenyReasonChange(val: string) {
-    this.state.denyReason = val;
-    this.setState(this.state);
+    this.setState({ denyReason: val });
   }
 }

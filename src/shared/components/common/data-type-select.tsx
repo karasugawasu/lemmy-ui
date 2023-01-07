@@ -15,13 +15,12 @@ export class DataTypeSelect extends Component<
   DataTypeSelectProps,
   DataTypeSelectState
 > {
-  private emptyState: DataTypeSelectState = {
+  state: DataTypeSelectState = {
     type_: this.props.type_,
   };
 
   constructor(props: any, context: any) {
     super(props, context);
-    this.state = this.emptyState;
   }
 
   static getDerivedStateFromProps(props: any): DataTypeSelectProps {
@@ -32,7 +31,7 @@ export class DataTypeSelect extends Component<
 
   render() {
     return (
-      <div class="btn-group btn-group-toggle flex-wrap mb-2">
+      <div className="btn-group btn-group-toggle flex-wrap mb-2">
         <label
           className={`pointer btn btn-outline-secondary 
             ${this.state.type_ == DataType.Post && "active"}
@@ -64,6 +63,6 @@ export class DataTypeSelect extends Component<
   }
 
   handleTypeChange(i: DataTypeSelect, event: any) {
-    i.props.onChange(Number(event.target.value));
+    i.props.onChange?.(Number(event.target.value));
   }
 }

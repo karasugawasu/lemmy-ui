@@ -1,9 +1,14 @@
 import { Component, linkEvent } from "inferno";
 import { T } from "inferno-i18next-dess";
-import { PostReportView, PostView, ResolvePostReport } from "lemmy-js-client";
+import {
+  PostReportView,
+  PostView,
+  ResolvePostReport,
+  SubscribedType,
+} from "lemmy-js-client";
 import { i18n } from "../../i18next";
 import { WebSocketService } from "../../services";
-import { authField, wsClient } from "../../utils";
+import { myAuth, wsClient } from "../../utils";
 import { Icon } from "../common/icon";
 import { PersonListing } from "../person/person-listing";
 import { PostListing } from "./post-listing";
@@ -19,6 +24,7 @@ export class PostReport extends Component<PostReportProps, any> {
 
   render() {
     let r = this.props.report;
+    let resolver = r.resolver;
     let post = r.post;
     let tippyContent = i18n.t(
       r.post_report.resolved ? "unresolve_report" : "resolve_report"
@@ -34,11 +40,12 @@ export class PostReport extends Component<PostReportProps, any> {
       community: r.community,
       creator_banned_from_community: r.creator_banned_from_community,
       counts: r.counts,
-      subscribed: false,
+      subscribed: SubscribedType.NotSubscribed,
       saved: false,
       read: false,
       creator_blocked: false,
       my_vote: r.my_vote,
+      unread_comments: 0,
     };
 
     return (
@@ -49,6 +56,9 @@ export class PostReport extends Component<PostReportProps, any> {
           enableDownvotes={true}
           enableNsfw={true}
           viewOnly={true}
+          allLanguages={[]}
+          siteLanguages={[]}
+          hideImage
         />
         <div>
           {i18n.t("reporter")}: <PersonListing person={r.creator} />
@@ -56,17 +66,17 @@ export class PostReport extends Component<PostReportProps, any> {
         <div>
           {i18n.t("reason")}: {r.post_report.reason}
         </div>
-        {r.resolver && (
+        {resolver && (
           <div>
             {r.post_report.resolved ? (
               <T i18nKey="resolved_by">
                 #
-                <PersonListing person={r.resolver} />
+                <PersonListing person={resolver} />
               </T>
             ) : (
               <T i18nKey="unresolved_by">
                 #
-                <PersonListing person={r.resolver} />
+                <PersonListing person={resolver} />
               </T>
             )}
           </div>
@@ -89,11 +99,14 @@ export class PostReport extends Component<PostReportProps, any> {
   }
 
   handleResolveReport(i: PostReport) {
-    let form: ResolvePostReport = {
-      report_id: i.props.report.post_report.id,
-      resolved: !i.props.report.post_report.resolved,
-      auth: authField(),
-    };
-    WebSocketService.Instance.send(wsClient.resolvePostReport(form));
+    let auth = myAuth();
+    if (auth) {
+      let form: ResolvePostReport = {
+        report_id: i.props.report.post_report.id,
+        resolved: !i.props.report.post_report.resolved,
+        auth,
+      };
+      WebSocketService.Instance.send(wsClient.resolvePostReport(form));
+    }
   }
 }

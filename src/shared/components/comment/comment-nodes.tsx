@@ -1,13 +1,18 @@
 import { Component } from "inferno";
-import { CommunityModeratorView, PersonViewSafe } from "lemmy-js-client";
-import { CommentNode as CommentNodeI } from "../../interfaces";
+import {
+  CommentNode as CommentNodeI,
+  CommunityModeratorView,
+  Language,
+  PersonViewSafe,
+} from "lemmy-js-client";
+import { CommentViewType } from "../../interfaces";
 import { CommentNode } from "./comment-node";
 
 interface CommentNodesProps {
   nodes: CommentNodeI[];
   moderators?: CommunityModeratorView[];
   admins?: PersonViewSafe[];
-  postCreatorId?: number;
+  maxCommentsShown?: number;
   noBorder?: boolean;
   noIndent?: boolean;
   viewOnly?: boolean;
@@ -15,8 +20,11 @@ interface CommentNodesProps {
   markable?: boolean;
   showContext?: boolean;
   showCommunity?: boolean;
-  maxCommentsShown?: number;
-  enableDownvotes: boolean;
+  enableDownvotes?: boolean;
+  viewType: CommentViewType;
+  allLanguages: Language[];
+  siteLanguages: number[];
+  hideImages?: boolean;
 }
 
 export class CommentNodes extends Component<CommentNodesProps, any> {
@@ -25,9 +33,7 @@ export class CommentNodes extends Component<CommentNodesProps, any> {
   }
 
   render() {
-    let maxComments = this.props.maxCommentsShown
-      ? this.props.maxCommentsShown
-      : this.props.nodes.length;
+    let maxComments = this.props.maxCommentsShown ?? this.props.nodes.length;
 
     return (
       <div className="comments">
@@ -41,11 +47,14 @@ export class CommentNodes extends Component<CommentNodesProps, any> {
             locked={this.props.locked}
             moderators={this.props.moderators}
             admins={this.props.admins}
-            postCreatorId={this.props.postCreatorId}
             markable={this.props.markable}
             showContext={this.props.showContext}
             showCommunity={this.props.showCommunity}
             enableDownvotes={this.props.enableDownvotes}
+            viewType={this.props.viewType}
+            allLanguages={this.props.allLanguages}
+            siteLanguages={this.props.siteLanguages}
+            hideImages={this.props.hideImages}
           />
         ))}
       </div>

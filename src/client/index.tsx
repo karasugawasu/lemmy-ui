@@ -8,8 +8,11 @@ initializeSite(site);
 
 const wrapper = (
   <BrowserRouter>
-    <App siteRes={window.isoData.site_res} />
+    <App />
   </BrowserRouter>
 );
 
-hydrate(wrapper, document.getElementById("root"));
+let root = document.getElementById("root");
+if (root) {
+  hydrate(wrapper, root);
+}

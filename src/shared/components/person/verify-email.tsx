@@ -1,9 +1,11 @@
 import { Component } from "inferno";
 import {
-  SiteView,
+  GetSiteResponse,
   UserOperation,
   VerifyEmail as VerifyEmailForm,
   VerifyEmailResponse,
+  wsJsonToRes,
+  wsUserOp,
 } from "lemmy-js-client";
 import { Subscription } from "rxjs";
 import { i18n } from "../../i18next";
@@ -13,32 +15,28 @@ import {
   setIsoData,
   toast,
   wsClient,
-  wsJsonToRes,
   wsSubscribe,
-  wsUserOp,
 } from "../../utils";
 import { HtmlTags } from "../common/html-tags";
 
 interface State {
   verifyEmailForm: VerifyEmailForm;
-  site_view: SiteView;
+  siteRes: GetSiteResponse;
 }
 
 export class VerifyEmail extends Component<any, State> {
   private isoData = setIsoData(this.context);
-  private subscription: Subscription;
+  private subscription?: Subscription;
 
-  emptyState: State = {
+  state: State = {
     verifyEmailForm: {
       token: this.props.match.params.token,
     },
-    site_view: this.isoData.site_res.site_view,
+    siteRes: this.isoData.site_res,
   };
 
   constructor(props: any, context: any) {
     super(props, context);
-
-    this.state = this.emptyState;
 
     this.parseMessage = this.parseMessage.bind(this);
     this.subscription = wsSubscribe(this.parseMessage);
@@ -52,23 +50,25 @@ export class VerifyEmail extends Component<any, State> {
 
   componentWillUnmount() {
     if (isBrowser()) {
-      this.subscription.unsubscribe();
+      this.subscription?.unsubscribe();
     }
   }
 
   get documentTitle(): string {
-    return `${i18n.t("verify_email")} - ${this.state.site_view.site.name}`;
+    return `${i18n.t("verify_email")} - ${
+      this.state.siteRes.site_view.site.name
+    }`;
   }
 
   render() {
     return (
-      <div class="container">
+      <div className="container-lg">
         <HtmlTags
           title={this.documentTitle}
           path={this.context.router.route.match.url}
         />
-        <div class="row">
-          <div class="col-12 col-lg-6 offset-lg-3 mb-4">
+        <div className="row">
+          <div className="col-12 col-lg-6 offset-lg-3 mb-4">
             <h5>{i18n.t("verify_email")}</h5>
           </div>
         </div>
@@ -85,11 +85,9 @@ export class VerifyEmail extends Component<any, State> {
       this.props.history.push("/");
       return;
     } else if (op == UserOperation.VerifyEmail) {
-      let data = wsJsonToRes<VerifyEmailResponse>(msg).data;
+      let data = wsJsonToRes<VerifyEmailResponse>(msg);
       if (data) {
         toast(i18n.t("email_verified"));
-        this.state = this.emptyState;
-        this.setState(this.state);
         this.props.history.push("/login");
       }
     }

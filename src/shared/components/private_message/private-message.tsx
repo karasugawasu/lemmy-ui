@@ -1,5 +1,6 @@
 import { Component, linkEvent } from "inferno";
 import {
+  CreatePrivateMessageReport,
   DeletePrivateMessage,
   MarkPrivateMessageAsRead,
   PersonSafe,
@@ -7,7 +8,7 @@ import {
 } from "lemmy-js-client";
 import { i18n } from "../../i18next";
 import { UserService, WebSocketService } from "../../services";
-import { authField, mdToHtml, toast, wsClient } from "../../utils";
+import { mdToHtml, myAuth, toast, wsClient } from "../../utils";
 import { Icon } from "../common/icon";
 import { MomentTime } from "../common/moment-time";
 import { PersonListing } from "../person/person-listing";
@@ -18,6 +19,8 @@ interface PrivateMessageState {
   showEdit: boolean;
   collapsed: boolean;
   viewSource: boolean;
+  showReportDialog: boolean;
+  reportReason?: string;
 }
 
 interface PrivateMessageProps {
@@ -28,17 +31,17 @@ export class PrivateMessage extends Component<
   PrivateMessageProps,
   PrivateMessageState
 > {
-  private emptyState: PrivateMessageState = {
+  state: PrivateMessageState = {
     showReply: false,
     showEdit: false,
     collapsed: false,
     viewSource: false,
+    showReportDialog: false,
   };
 
   constructor(props: any, context: any) {
     super(props, context);
 
-    this.state = this.emptyState;
     this.handleReplyCancel = this.handleReplyCancel.bind(this);
     this.handlePrivateMessageCreate =
       this.handlePrivateMessageCreate.bind(this);
@@ -47,23 +50,21 @@ export class PrivateMessage extends Component<
 
   get mine(): boolean {
     return (
-      UserService.Instance.myUserInfo &&
-      UserService.Instance.myUserInfo.local_user_view.person.id ==
-        this.props.private_message_view.creator.id
+      UserService.Instance.myUserInfo?.local_user_view.person.id ==
+      this.props.private_message_view.creator.id
     );
   }
 
   render() {
     let message_view = this.props.private_message_view;
-    // TODO check this again
     let otherPerson: PersonSafe = this.mine
       ? message_view.recipient
       : message_view.creator;
 
     return (
-      <div class="border-top border-light">
+      <div className="border-top border-light">
         <div>
-          <ul class="list-inline mb-0 text-muted small">
+          <ul className="list-inline mb-0 text-muted small">
             {/* TODO refactor this */}
             <li className="list-inline-item">
               {this.mine ? i18n.t("to") : i18n.t("from")}
@@ -73,7 +74,10 @@ export class PrivateMessage extends Component<
             </li>
             <li className="list-inline-item">
               <span>
-                <MomentTime data={message_view.private_message} />
+                <MomentTime
+                  published={message_view.private_message.published}
+                  updated={message_view.private_message.updated}
+                />
               </span>
             </li>
             <li className="list-inline-item">
@@ -93,7 +97,7 @@ export class PrivateMessage extends Component<
           {this.state.showEdit && (
             <PrivateMessageForm
               recipient={otherPerson}
-              privateMessage={message_view}
+              privateMessageView={message_view}
               onEdit={this.handlePrivateMessageEdit}
               onCreate={this.handlePrivateMessageCreate}
               onCancel={this.handleReplyCancel}
@@ -109,12 +113,12 @@ export class PrivateMessage extends Component<
                   dangerouslySetInnerHTML={mdToHtml(this.messageUnlessRemoved)}
                 />
               )}
-              <ul class="list-inline mb-0 text-muted font-weight-bold">
+              <ul className="list-inline mb-0 text-muted font-weight-bold">
                 {!this.mine && (
                   <>
                     <li className="list-inline-item">
                       <button
-                        class="btn btn-link btn-animate text-muted"
+                        className="btn btn-link btn-animate text-muted"
                         onClick={linkEvent(this, this.handleMarkRead)}
                         data-tippy-content={
                           message_view.private_message.read
@@ -135,9 +139,10 @@ export class PrivateMessage extends Component<
                         />
                       </button>
                     </li>
+                    <li className="list-inline-item">{this.reportButton}</li>
                     <li className="list-inline-item">
                       <button
-                        class="btn btn-link btn-animate text-muted"
+                        className="btn btn-link btn-animate text-muted"
                         onClick={linkEvent(this, this.handleReplyClick)}
                         data-tippy-content={i18n.t("reply")}
                         aria-label={i18n.t("reply")}
@@ -151,7 +156,7 @@ export class PrivateMessage extends Component<
                   <>
                     <li className="list-inline-item">
                       <button
-                        class="btn btn-link btn-animate text-muted"
+                        className="btn btn-link btn-animate text-muted"
                         onClick={linkEvent(this, this.handleEditClick)}
                         data-tippy-content={i18n.t("edit")}
                         aria-label={i18n.t("edit")}
@@ -161,7 +166,7 @@ export class PrivateMessage extends Component<
                     </li>
                     <li className="list-inline-item">
                       <button
-                        class="btn btn-link btn-animate text-muted"
+                        className="btn btn-link btn-animate text-muted"
                         onClick={linkEvent(this, this.handleDeleteClick)}
                         data-tippy-content={
                           !message_view.private_message.deleted
@@ -187,7 +192,7 @@ export class PrivateMessage extends Component<
                 )}
                 <li className="list-inline-item">
                   <button
-                    class="btn btn-link btn-animate text-muted"
+                    className="btn btn-link btn-animate text-muted"
                     onClick={linkEvent(this, this.handleViewSource)}
                     data-tippy-content={i18n.t("view_source")}
                     aria-label={i18n.t("view_source")}
@@ -204,6 +209,32 @@ export class PrivateMessage extends Component<
             </div>
           )}
         </div>
+        {this.state.showReportDialog && (
+          <form
+            className="form-inline"
+            onSubmit={linkEvent(this, this.handleReportSubmit)}
+          >
+            <label className="sr-only" htmlFor="pm-report-reason">
+              {i18n.t("reason")}
+            </label>
+            <input
+              type="text"
+              id="pm-report-reason"
+              className="form-control mr-2"
+              placeholder={i18n.t("reason")}
+              required
+              value={this.state.reportReason}
+              onInput={linkEvent(this, this.handleReportReasonChange)}
+            />
+            <button
+              type="submit"
+              className="btn btn-secondary"
+              aria-label={i18n.t("create_report")}
+            >
+              {i18n.t("create_report")}
+            </button>
+          </form>
+        )}
         {this.state.showReply && (
           <PrivateMessageForm
             recipient={otherPerson}
@@ -211,8 +242,21 @@ export class PrivateMessage extends Component<
           />
         )}
         {/* A collapsed clearfix */}
-        {this.state.collapsed && <div class="row col-12"></div>}
+        {this.state.collapsed && <div className="row col-12"></div>}
       </div>
+    );
+  }
+
+  get reportButton() {
+    return (
+      <button
+        className="btn btn-link btn-animate text-muted py-0"
+        onClick={linkEvent(this, this.handleShowReportDialog)}
+        data-tippy-content={i18n.t("show_report_dialog")}
+        aria-label={i18n.t("show_report_dialog")}
+      >
+        <Icon icon="flag" inline />
+      </button>
     );
   }
 
@@ -222,62 +266,84 @@ export class PrivateMessage extends Component<
   }
 
   handleReplyClick(i: PrivateMessage) {
-    i.state.showReply = true;
-    i.setState(i.state);
+    i.setState({ showReply: true });
   }
 
   handleEditClick(i: PrivateMessage) {
-    i.state.showEdit = true;
+    i.setState({ showEdit: true });
     i.setState(i.state);
   }
 
   handleDeleteClick(i: PrivateMessage) {
-    let form: DeletePrivateMessage = {
-      private_message_id: i.props.private_message_view.private_message.id,
-      deleted: !i.props.private_message_view.private_message.deleted,
-      auth: authField(),
-    };
-    WebSocketService.Instance.send(wsClient.deletePrivateMessage(form));
+    let auth = myAuth();
+    if (auth) {
+      let form: DeletePrivateMessage = {
+        private_message_id: i.props.private_message_view.private_message.id,
+        deleted: !i.props.private_message_view.private_message.deleted,
+        auth,
+      };
+      WebSocketService.Instance.send(wsClient.deletePrivateMessage(form));
+    }
   }
 
   handleReplyCancel() {
-    this.state.showReply = false;
-    this.state.showEdit = false;
-    this.setState(this.state);
+    this.setState({ showReply: false, showEdit: false });
   }
 
   handleMarkRead(i: PrivateMessage) {
-    let form: MarkPrivateMessageAsRead = {
-      private_message_id: i.props.private_message_view.private_message.id,
-      read: !i.props.private_message_view.private_message.read,
-      auth: authField(),
-    };
-    WebSocketService.Instance.send(wsClient.markPrivateMessageAsRead(form));
+    let auth = myAuth();
+    if (auth) {
+      let form: MarkPrivateMessageAsRead = {
+        private_message_id: i.props.private_message_view.private_message.id,
+        read: !i.props.private_message_view.private_message.read,
+        auth,
+      };
+      WebSocketService.Instance.send(wsClient.markPrivateMessageAsRead(form));
+    }
   }
 
   handleMessageCollapse(i: PrivateMessage) {
-    i.state.collapsed = !i.state.collapsed;
-    i.setState(i.state);
+    i.setState({ collapsed: !i.state.collapsed });
   }
 
   handleViewSource(i: PrivateMessage) {
-    i.state.viewSource = !i.state.viewSource;
-    i.setState(i.state);
+    i.setState({ viewSource: !i.state.viewSource });
+  }
+
+  handleShowReportDialog(i: PrivateMessage) {
+    i.setState({ showReportDialog: !i.state.showReportDialog });
+  }
+
+  handleReportReasonChange(i: PrivateMessage, event: any) {
+    i.setState({ reportReason: event.target.value });
+  }
+
+  handleReportSubmit(i: PrivateMessage, event: any) {
+    event.preventDefault();
+    let auth = myAuth();
+    let reason = i.state.reportReason;
+    if (auth && reason) {
+      let form: CreatePrivateMessageReport = {
+        private_message_id: i.props.private_message_view.private_message.id,
+        reason,
+        auth,
+      };
+      WebSocketService.Instance.send(wsClient.createPrivateMessageReport(form));
+
+      i.setState({ showReportDialog: false });
+    }
   }
 
   handlePrivateMessageEdit() {
-    this.state.showEdit = false;
-    this.setState(this.state);
+    this.setState({ showEdit: false });
   }
 
   handlePrivateMessageCreate(message: PrivateMessageView) {
     if (
-      UserService.Instance.myUserInfo &&
       message.creator.id ==
-        UserService.Instance.myUserInfo.local_user_view.person.id
+      UserService.Instance.myUserInfo?.local_user_view.person.id
     ) {
-      this.state.showReply = false;
-      this.setState(this.state);
+      this.setState({ showReply: false });
       toast(i18n.t("message_sent"));
     }
   }

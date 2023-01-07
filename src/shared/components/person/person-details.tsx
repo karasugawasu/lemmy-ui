@@ -2,11 +2,12 @@ import { Component } from "inferno";
 import {
   CommentView,
   GetPersonDetailsResponse,
+  Language,
   PersonViewSafe,
   PostView,
   SortType,
 } from "lemmy-js-client";
-import { PersonDetailsView } from "../../interfaces";
+import { CommentViewType, PersonDetailsView } from "../../interfaces";
 import { commentsToFlatNodes, setupTippy } from "../../utils";
 import { CommentNodes } from "../comment/comment-nodes";
 import { Paginator } from "../common/paginator";
@@ -15,6 +16,8 @@ import { PostListing } from "../post/post-listing";
 interface PersonDetailsProps {
   personRes: GetPersonDetailsResponse;
   admins: PersonViewSafe[];
+  allLanguages: Language[];
+  siteLanguages: number[];
   page: number;
   limit: number;
   sort: SortType;
@@ -88,13 +91,16 @@ export class PersonDetails extends Component<PersonDetailsProps, any> {
         return (
           <CommentNodes
             key={i.id}
-            nodes={[{ comment_view: c }]}
+            nodes={[{ comment_view: c, children: [], depth: 0 }]}
+            viewType={CommentViewType.Flat}
             admins={this.props.admins}
             noBorder
             noIndent
             showCommunity
             showContext
             enableDownvotes={this.props.enableDownvotes}
+            allLanguages={this.props.allLanguages}
+            siteLanguages={this.props.siteLanguages}
           />
         );
       }
@@ -108,6 +114,8 @@ export class PersonDetails extends Component<PersonDetailsProps, any> {
             showCommunity
             enableDownvotes={this.props.enableDownvotes}
             enableNsfw={this.props.enableNsfw}
+            allLanguages={this.props.allLanguages}
+            siteLanguages={this.props.siteLanguages}
           />
         );
       }
@@ -144,7 +152,10 @@ export class PersonDetails extends Component<PersonDetailsProps, any> {
 
     return (
       <div>
-        {combined.map(i => [this.renderItemType(i), <hr class="my-3" />])}
+        {combined.map(i => [
+          this.renderItemType(i),
+          <hr key={i.type_} className="my-3" />,
+        ])}
       </div>
     );
   }
@@ -154,11 +165,14 @@ export class PersonDetails extends Component<PersonDetailsProps, any> {
       <div>
         <CommentNodes
           nodes={commentsToFlatNodes(this.props.personRes.comments)}
+          viewType={CommentViewType.Flat}
           admins={this.props.admins}
           noIndent
           showCommunity
           showContext
           enableDownvotes={this.props.enableDownvotes}
+          allLanguages={this.props.allLanguages}
+          siteLanguages={this.props.siteLanguages}
         />
       </div>
     );
@@ -175,8 +189,10 @@ export class PersonDetails extends Component<PersonDetailsProps, any> {
               showCommunity
               enableDownvotes={this.props.enableDownvotes}
               enableNsfw={this.props.enableNsfw}
+              allLanguages={this.props.allLanguages}
+              siteLanguages={this.props.siteLanguages}
             />
-            <hr class="my-3" />
+            <hr className="my-3" />
           </>
         ))}
       </div>

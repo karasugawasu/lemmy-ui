@@ -11,36 +11,45 @@ import {
   CreatePostLike,
   CreatePostReport,
   DeletePost,
+  FeaturePost,
+  Language,
   LockPost,
   PersonViewSafe,
+  PostFeatureType,
   PostView,
+  PurgePerson,
+  PurgePost,
   RemovePost,
   SavePost,
-  StickyPost,
   TransferCommunity,
 } from "lemmy-js-client";
 import { externalHost } from "../../env";
 import { i18n } from "../../i18next";
-import { BanType } from "../../interfaces";
+import { BanType, PurgeType } from "../../interfaces";
 import { UserService, WebSocketService } from "../../services";
 import {
-  authField,
+  amAdmin,
+  amCommunityCreator,
+  canAdmin,
   canMod,
   futureDaysToUnixTime,
   hostname,
+  isAdmin,
   isBanned,
   isImage,
   isMod,
   isVideo,
-  md,
+  mdNoImages,
   mdToHtml,
+  mdToHtmlInline,
+  myAuth,
   numToSI,
   relTags,
   setupTippy,
   showScores,
   wsClient,
 } from "../../utils";
-import { Icon } from "../common/icon";
+import { Icon, PurgeWarning, Spinner } from "../common/icon";
 import { MomentTime } from "../common/moment-time";
 import { PictrsImage } from "../common/pictrs-image";
 import { CommunityLink } from "../community/community-link";
@@ -51,12 +60,16 @@ import { PostForm } from "./post-form";
 interface PostListingState {
   showEdit: boolean;
   showRemoveDialog: boolean;
-  removeReason: string;
+  showPurgeDialog: boolean;
+  purgeReason?: string;
+  purgeType?: PurgeType;
+  purgeLoading: boolean;
+  removeReason?: string;
   showBanDialog: boolean;
-  banReason: string;
-  banExpireDays: number;
-  banType: BanType;
-  removeData: boolean;
+  banReason?: string;
+  banExpireDays?: number;
+  banType?: BanType;
+  removeData?: boolean;
   showConfirmTransferSite: boolean;
   showConfirmTransferCommunity: boolean;
   imageExpanded: boolean;
@@ -65,8 +78,8 @@ interface PostListingState {
   showMoreMobile: boolean;
   showBody: boolean;
   showReportDialog: boolean;
-  reportReason: string;
-  my_vote: number;
+  reportReason?: string;
+  my_vote?: number;
   score: number;
   upvotes: number;
   downvotes: number;
@@ -75,23 +88,26 @@ interface PostListingState {
 interface PostListingProps {
   post_view: PostView;
   duplicates?: PostView[];
-  showCommunity?: boolean;
-  showBody?: boolean;
   moderators?: CommunityModeratorView[];
   admins?: PersonViewSafe[];
-  enableDownvotes: boolean;
-  enableNsfw: boolean;
+  allLanguages: Language[];
+  siteLanguages: number[];
+  showCommunity?: boolean;
+  showBody?: boolean;
+  hideImage?: boolean;
+  enableDownvotes?: boolean;
+  enableNsfw?: boolean;
   viewOnly?: boolean;
 }
 
 export class PostListing extends Component<PostListingProps, PostListingState> {
-  private emptyState: PostListingState = {
+  state: PostListingState = {
     showEdit: false,
     showRemoveDialog: false,
-    removeReason: null,
+    showPurgeDialog: false,
+    purgeType: PurgeType.Person,
+    purgeLoading: false,
     showBanDialog: false,
-    banReason: null,
-    banExpireDays: null,
     banType: BanType.Community,
     removeData: false,
     showConfirmTransferSite: false,
@@ -102,7 +118,6 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
     showMoreMobile: false,
     showBody: false,
     showReportDialog: false,
-    reportReason: null,
     my_vote: this.props.post_view.my_vote,
     score: this.props.post_view.counts.score,
     upvotes: this.props.post_view.counts.upvotes,
@@ -112,7 +127,6 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
   constructor(props: any, context: any) {
     super(props, context);
 
-    this.state = this.emptyState;
     this.handlePostLike = this.handlePostLike.bind(this);
     this.handlePostDisLike = this.handlePostDisLike.bind(this);
     this.handleEditPost = this.handleEditPost.bind(this);
@@ -120,37 +134,40 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
   }
 
   componentWillReceiveProps(nextProps: PostListingProps) {
-    this.state.my_vote = nextProps.post_view.my_vote;
-    this.state.upvotes = nextProps.post_view.counts.upvotes;
-    this.state.downvotes = nextProps.post_view.counts.downvotes;
-    this.state.score = nextProps.post_view.counts.score;
+    this.setState({
+      my_vote: nextProps.post_view.my_vote,
+      upvotes: nextProps.post_view.counts.upvotes,
+      downvotes: nextProps.post_view.counts.downvotes,
+      score: nextProps.post_view.counts.score,
+    });
     if (this.props.post_view.post.id !== nextProps.post_view.post.id) {
-      this.state.imageExpanded = false;
+      this.setState({ imageExpanded: false });
     }
-    this.setState(this.state);
   }
 
   render() {
     let post = this.props.post_view.post;
     return (
-      <div class="post-listing">
+      <div className="post-listing">
         {!this.state.showEdit ? (
           <>
             {this.listing()}
-            {this.state.imageExpanded && this.img}
+            {this.state.imageExpanded && !this.props.hideImage && this.img}
             {post.url && this.showBody && post.embed_title && (
               <MetadataCard post={post} />
             )}
-            {this.showBody && post.body && this.body()}
+            {this.showBody && this.body()}
           </>
         ) : (
-          <div class="col-12">
+          <div className="col-12">
             <PostForm
               post_view={this.props.post_view}
               onEdit={this.handleEditPost}
               onCancel={this.handleEditCancel}
               enableNsfw={this.props.enableNsfw}
               enableDownvotes={this.props.enableDownvotes}
+              allLanguages={this.props.allLanguages}
+              siteLanguages={this.props.siteLanguages}
             />
           </div>
         )}
@@ -159,38 +176,40 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
   }
 
   body() {
-    let post = this.props.post_view.post;
-    return (
-      <div class="col-12 card my-2 p-2">
+    let body = this.props.post_view.post.body;
+    return body ? (
+      <div className="col-12 card my-2 p-2">
         {this.state.viewSource ? (
-          <pre>{post.body}</pre>
+          <pre>{body}</pre>
         ) : (
-          <div
-            className="md-div"
-            dangerouslySetInnerHTML={mdToHtml(post.body)}
-          />
+          <div className="md-div" dangerouslySetInnerHTML={mdToHtml(body)} />
         )}
       </div>
+    ) : (
+      <></>
     );
   }
 
   get img() {
-    return (
+    let src = this.imageSrc;
+    return src ? (
       <>
-        <div class="offset-sm-3 my-2 d-none d-sm-block">
-          <a href={this.imageSrc} class="d-inline-block">
-            <PictrsImage src={this.imageSrc} />
+        <div className="offset-sm-3 my-2 d-none d-sm-block">
+          <a href={src} className="d-inline-block">
+            <PictrsImage src={src} />
           </a>
         </div>
         <div className="my-2 d-block d-sm-none">
           <a
-            class="d-inline-block"
+            className="d-inline-block"
             onClick={linkEvent(this, this.handleImageExpandClick)}
           >
-            <PictrsImage src={this.imageSrc} />
+            <PictrsImage src={src} />
           </a>
         </div>
       </>
+    ) : (
+      <></>
     );
   }
 
@@ -206,31 +225,36 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
     );
   }
 
-  get imageSrc(): string {
+  get imageSrc(): string | undefined {
     let post = this.props.post_view.post;
-    if (isImage(post.url)) {
-      if (post.url.includes("pictrs")) {
-        return post.url;
-      } else if (post.thumbnail_url) {
-        return post.thumbnail_url;
+    let url = post.url;
+    let thumbnail = post.thumbnail_url;
+
+    if (url && isImage(url)) {
+      if (url.includes("pictrs")) {
+        return url;
+      } else if (thumbnail) {
+        return thumbnail;
       } else {
-        return post.url;
+        return url;
       }
-    } else if (post.thumbnail_url) {
-      return post.thumbnail_url;
+    } else if (thumbnail) {
+      return thumbnail;
     } else {
-      return null;
+      return undefined;
     }
   }
 
   thumbnail() {
     let post = this.props.post_view.post;
+    let url = post.url;
+    let thumbnail = post.thumbnail_url;
 
-    if (isImage(post.url)) {
+    if (!this.props.hideImage && url && isImage(url) && this.imageSrc) {
       return (
         <a
           href={this.imageSrc}
-          class="text-body d-inline-block position-relative mb-2"
+          className="text-body d-inline-block position-relative mb-2"
           data-tippy-content={i18n.t("expand_here")}
           onClick={linkEvent(this, this.handleImageExpandClick)}
           aria-label={i18n.t("expand_here")}
@@ -239,42 +263,37 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
           <Icon icon="image" classes="mini-overlay" />
         </a>
       );
-    } else if (post.thumbnail_url) {
+    } else if (!this.props.hideImage && url && thumbnail && this.imageSrc) {
       return (
         <a
-          class="text-body d-inline-block position-relative mb-2"
-          href={post.url}
+          className="text-body d-inline-block position-relative mb-2"
+          href={url}
           rel={relTags}
-          title={post.url}
+          title={url}
         >
           {this.imgThumb(this.imageSrc)}
           <Icon icon="external-link" classes="mini-overlay" />
         </a>
       );
-    } else if (post.url) {
-      if (isVideo(post.url)) {
+    } else if (url) {
+      if (!this.props.hideImage && isVideo(url)) {
         return (
-          <div class="embed-responsive embed-responsive-16by9">
+          <div className="embed-responsive embed-responsive-16by9">
             <video
-              playsinline
+              playsInline
               muted
               loop
               controls
-              class="embed-responsive-item"
+              className="embed-responsive-item"
             >
-              <source src={post.url} type="video/mp4" />
+              <source src={url} type="video/mp4" />
             </video>
           </div>
         );
       } else {
         return (
-          <a
-            className="text-body"
-            href={post.url}
-            title={post.url}
-            rel={relTags}
-          >
-            <div class="thumbnail rounded bg-light d-flex justify-content-center">
+          <a className="text-body" href={url} title={url} rel={relTags}>
+            <div className="thumbnail rounded bg-light d-flex justify-content-center">
               <Icon icon="external-link" classes="d-flex align-items-center" />
             </div>
           </a>
@@ -287,7 +306,7 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
           to={`/post/${post.id}`}
           title={i18n.t("comments")}
         >
-          <div class="thumbnail rounded bg-light d-flex justify-content-center">
+          <div className="thumbnail rounded bg-light d-flex justify-content-center">
             <Icon icon="message-square" classes="d-flex align-items-center" />
           </div>
         </Link>
@@ -297,15 +316,17 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
 
   createdLine() {
     let post_view = this.props.post_view;
+    let url = post_view.post.url;
+    let body = post_view.post.body;
     return (
-      <ul class="list-inline mb-1 text-muted small">
+      <ul className="list-inline mb-1 text-muted small">
         <li className="list-inline-item">
           <PersonListing person={post_view.creator} />
 
-          {this.creatorIsMod && (
+          {this.creatorIsMod_ && (
             <span className="mx-1 badge badge-light">{i18n.t("mod")}</span>
           )}
-          {this.creatorIsAdmin && (
+          {this.creatorIsAdmin_ && (
             <span className="mx-1 badge badge-light">{i18n.t("admin")}</span>
           )}
           {post_view.creator.bot_account && (
@@ -322,22 +343,22 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
           )}
           {this.props.showCommunity && (
             <span>
-              <span class="mx-1"> {i18n.t("to")} </span>
+              <span className="mx-1"> {i18n.t("to")} </span>
               <CommunityLink community={post_view.community} />
             </span>
           )}
         </li>
         <li className="list-inline-item">•</li>
-        {post_view.post.url && !(hostname(post_view.post.url) == externalHost) && (
+        {url && !(hostname(url) == externalHost) && (
           <>
             <li className="list-inline-item">
               <a
                 className="text-muted font-italic"
-                href={post_view.post.url}
-                title={post_view.post.url}
+                href={url}
+                title={url}
                 rel={relTags}
               >
-                {hostname(post_view.post.url)}
+                {hostname(url)}
               </a>
             </li>
             <li className="list-inline-item">•</li>
@@ -345,16 +366,19 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
         )}
         <li className="list-inline-item">
           <span>
-            <MomentTime data={post_view.post} />
+            <MomentTime
+              published={post_view.post.published}
+              updated={post_view.post.updated}
+            />
           </span>
         </li>
-        {post_view.post.body && (
+        {body && (
           <>
             <li className="list-inline-item">•</li>
             <li className="list-inline-item">
               <button
                 className="text-muted btn btn-sm btn-link p-0"
-                data-tippy-content={md.render(post_view.post.body)}
+                data-tippy-content={mdNoImages.render(body)}
                 data-tippy-allowHtml={true}
                 onClick={linkEvent(this, this.handleShowBody)}
               >
@@ -374,7 +398,7 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
           className={`btn-animate btn btn-link p-0 ${
             this.state.my_vote == 1 ? "text-info" : "text-muted"
           }`}
-          onClick={linkEvent(this, this.handlePostLike)}
+          onClick={this.handlePostLike}
           data-tippy-content={i18n.t("upvote")}
           aria-label={i18n.t("upvote")}
         >
@@ -382,20 +406,20 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
         </button>
         {showScores() ? (
           <div
-            class={`unselectable pointer font-weight-bold text-muted px-1`}
+            className={`unselectable pointer font-weight-bold text-muted px-1`}
             data-tippy-content={this.pointsTippy}
           >
             {numToSI(this.state.score)}
           </div>
         ) : (
-          <div class="p-1"></div>
+          <div className="p-1"></div>
         )}
         {this.props.enableDownvotes && (
           <button
             className={`btn-animate btn btn-link p-0 ${
               this.state.my_vote == -1 ? "text-danger" : "text-muted"
             }`}
-            onClick={linkEvent(this, this.handlePostDisLike)}
+            onClick={this.handlePostDisLike}
             data-tippy-content={i18n.t("downvote")}
             aria-label={i18n.t("downvote")}
           >
@@ -406,43 +430,65 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
     );
   }
 
+  get postLink() {
+    let post = this.props.post_view.post;
+    return (
+      <Link
+        className={
+          !post.featured_community && !post.featured_local
+            ? "text-body"
+            : "text-primary"
+        }
+        to={`/post/${post.id}`}
+        title={i18n.t("comments")}
+      >
+        <div dangerouslySetInnerHTML={mdToHtmlInline(post.name)} />
+      </Link>
+    );
+  }
+
   postTitleLine() {
     let post = this.props.post_view.post;
+    let url = post.url;
+
     return (
       <div className="post-title overflow-hidden">
         <h5>
-          {this.showBody && post.url ? (
-            <a
-              className={!post.stickied ? "text-body" : "text-primary"}
-              href={post.url}
-              title={post.url}
-              rel={relTags}
-            >
-              {post.name}
-            </a>
-          ) : (
-            <Link
-              className={!post.stickied ? "text-body" : "text-primary"}
-              to={`/post/${post.id}`}
-              title={i18n.t("comments")}
-            >
-              {post.name}
-            </Link>
-          )}
-          {(isImage(post.url) || post.thumbnail_url) && (
-            <button
-              class="btn btn-link text-monospace text-muted small d-inline-block ml-2"
-              data-tippy-content={i18n.t("expand_here")}
-              onClick={linkEvent(this, this.handleImageExpandClick)}
-            >
-              <Icon
-                icon={
-                  !this.state.imageExpanded ? "plus-square" : "minus-square"
+          {url ? (
+            this.props.showBody ? (
+              <a
+                className={
+                  !post.featured_community && !post.featured_local
+                    ? "text-body"
+                    : "text-primary"
                 }
-                classes="icon-inline"
-              />
-            </button>
+                href={url}
+                title={url}
+                rel={relTags}
+              >
+                <div dangerouslySetInnerHTML={mdToHtmlInline(post.name)} />
+              </a>
+            ) : (
+              this.postLink
+            )
+          ) : (
+            this.postLink
           )}
+          {(url && isImage(url)) ||
+            (post.thumbnail_url && (
+              <button
+                className="btn btn-link text-monospace text-muted small d-inline-block ml-2"
+                data-tippy-content={i18n.t("expand_here")}
+                onClick={linkEvent(this, this.handleImageExpandClick)}
+              >
+                <Icon
+                  icon={
+                    !this.state.imageExpanded ? "plus-square" : "minus-square"
+                  }
+                  classes="icon-inline"
+                />
+              </button>
+            ))}
           {post.removed && (
             <small className="ml-2 text-muted font-italic">
               {i18n.t("removed")}
@@ -464,12 +510,20 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
               <Icon icon="lock" classes="icon-inline text-danger" />
             </small>
           )}
-          {post.stickied && (
+          {post.featured_community && (
             <small
               className="unselectable pointer ml-2 text-muted font-italic"
-              data-tippy-content={i18n.t("stickied")}
+              data-tippy-content={i18n.t("featured")}
             >
               <Icon icon="pin" classes="icon-inline text-primary" />
+            </small>
+          )}
+          {post.featured_local && (
+            <small
+              className="unselectable pointer ml-2 text-muted font-italic"
+              data-tippy-content={i18n.t("featured")}
+            >
+              <Icon icon="pin" classes="icon-inline text-secondary" />
             </small>
           )}
           {post.nsfw && (
@@ -484,33 +538,30 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
 
   duplicatesLine() {
     let dupes = this.props.duplicates;
-    return (
-      dupes &&
-      dupes.length > 0 && (
-        <ul class="list-inline mb-1 small text-muted">
-          <>
-            <li className="list-inline-item mr-2">
-              {i18n.t("cross_posted_to")}
+    return dupes && dupes.length > 0 ? (
+      <ul className="list-inline mb-1 small text-muted">
+        <>
+          <li className="list-inline-item mr-2">{i18n.t("cross_posted_to")}</li>
+          {dupes.map(pv => (
+            <li key={pv.post.id} className="list-inline-item mr-2">
+              <Link to={`/post/${pv.post.id}`}>
+                {pv.community.local
+                  ? pv.community.name
+                  : `${pv.community.name}@${hostname(pv.community.actor_id)}`}
+              </Link>
             </li>
-            {dupes.map(pv => (
-              <li className="list-inline-item mr-2">
-                <Link to={`/post/${pv.post.id}`}>
-                  {pv.community.local
-                    ? pv.community.name
-                    : `${pv.community.name}@${hostname(pv.community.actor_id)}`}
-                </Link>
-              </li>
-            ))}
-          </>
-        </ul>
-      )
+          ))}
+        </>
+      </ul>
+    ) : (
+      <></>
     );
   }
 
   commentsLine(mobile = false) {
     let post = this.props.post_view.post;
     return (
-      <div class="d-flex justify-content-start flex-wrap text-muted font-weight-bold mb-1">
+      <div className="d-flex justify-content-start flex-wrap text-muted font-weight-bold mb-1">
         {this.commentsButton}
         {!post.local && (
           <a
@@ -557,15 +608,13 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
         {this.state.showAdvanced && (
           <>
             {this.showBody && post_view.post.body && this.viewSourceButton}
-            {this.canModOnSelf && (
+            {this.canModOnSelf_ && (
               <>
                 {this.lockButton}
-                {this.stickyButton}
+                {this.featureButton}
               </>
             )}
-            {(this.canMod || this.canAdmin || true) && (
-              <>{this.modRemoveButton}</>
-            )}
+            {(this.canMod_ || this.canAdmin_) && <>{this.modRemoveButton}</>}
           </>
         )}
         {!mobile && this.showMoreButton}
@@ -576,7 +625,7 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
   get commentsButton() {
     let post_view = this.props.post_view;
     return (
-      <button class="btn btn-link text-muted py-0 pl-0">
+      <button className="btn btn-link text-muted py-0 pl-0">
         <Link
           className="text-muted"
           title={i18n.t("number_of_comments", {
@@ -586,13 +635,27 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
           to={`/post/${post_view.post.id}?scrollToComments=true`}
         >
           <Icon icon="message-square" classes="mr-1" inline />
-          {i18n.t("number_of_comments", {
-            count: post_view.counts.comments,
-            formattedCount: numToSI(post_view.counts.comments),
-          })}
+          <span className="mr-2">
+            {i18n.t("number_of_comments", {
+              count: post_view.counts.comments,
+              formattedCount: numToSI(post_view.counts.comments),
+            })}
+          </span>
+          {this.unreadCount && (
+            <span className="small text-warning">
+              ({this.unreadCount} {i18n.t("new")})
+            </span>
+          )}
         </Link>
       </button>
     );
+  }
+
+  get unreadCount(): number | undefined {
+    let pv = this.props.post_view;
+    return pv.unread_comments == pv.counts.comments || pv.unread_comments == 0
+      ? undefined
+      : pv.unread_comments;
   }
 
   get mobileVotes() {
@@ -606,12 +669,12 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
               this.state.my_vote == 1 ? "text-info" : "text-muted"
             }`}
             {...tippy}
-            onClick={linkEvent(this, this.handlePostLike)}
+            onClick={this.handlePostLike}
             aria-label={i18n.t("upvote")}
           >
             <Icon icon="arrow-up1" classes="icon-inline small" />
             {showScores() && (
-              <span class="ml-2">{numToSI(this.state.upvotes)}</span>
+              <span className="ml-2">{numToSI(this.state.upvotes)}</span>
             )}
           </button>
           {this.props.enableDownvotes && (
@@ -619,14 +682,14 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
               className={`ml-2 btn-animate btn py-0 px-1 ${
                 this.state.my_vote == -1 ? "text-danger" : "text-muted"
               }`}
-              onClick={linkEvent(this, this.handlePostDisLike)}
+              onClick={this.handlePostDisLike}
               {...tippy}
               aria-label={i18n.t("downvote")}
             >
               <Icon icon="arrow-down1" classes="icon-inline small" />
               {showScores() && (
                 <span
-                  class={classNames("ml-2", {
+                  className={classNames("ml-2", {
                     invisible: this.state.downvotes === 0,
                   })}
                 >
@@ -645,7 +708,7 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
     let label = saved ? i18n.t("unsave") : i18n.t("save");
     return (
       <button
-        class="btn btn-link btn-animate text-muted py-0"
+        className="btn btn-link btn-animate text-muted py-0"
         onClick={linkEvent(this, this.handleSavePostClick)}
         data-tippy-content={label}
         aria-label={label}
@@ -674,7 +737,7 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
   get reportButton() {
     return (
       <button
-        class="btn btn-link btn-animate text-muted py-0"
+        className="btn btn-link btn-animate text-muted py-0"
         onClick={linkEvent(this, this.handleShowReportDialog)}
         data-tippy-content={i18n.t("show_report_dialog")}
         aria-label={i18n.t("show_report_dialog")}
@@ -687,7 +750,7 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
   get blockButton() {
     return (
       <button
-        class="btn btn-link btn-animate text-muted py-0"
+        className="btn btn-link btn-animate text-muted py-0"
         onClick={linkEvent(this, this.handleBlockUserClick)}
         data-tippy-content={i18n.t("block_user")}
         aria-label={i18n.t("block_user")}
@@ -700,7 +763,7 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
   get editButton() {
     return (
       <button
-        class="btn btn-link btn-animate text-muted py-0"
+        className="btn btn-link btn-animate text-muted py-0"
         onClick={linkEvent(this, this.handleEditClick)}
         data-tippy-content={i18n.t("edit")}
         aria-label={i18n.t("edit")}
@@ -715,7 +778,7 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
     let label = !deleted ? i18n.t("delete") : i18n.t("restore");
     return (
       <button
-        class="btn btn-link btn-animate text-muted py-0"
+        className="btn btn-link btn-animate text-muted py-0"
         onClick={linkEvent(this, this.handleDeleteClick)}
         data-tippy-content={label}
         aria-label={label}
@@ -732,7 +795,7 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
   get showMoreButton() {
     return (
       <button
-        class="btn btn-link btn-animate text-muted py-0"
+        className="btn btn-link btn-animate text-muted py-0"
         onClick={linkEvent(this, this.handleShowAdvanced)}
         data-tippy-content={i18n.t("more")}
         aria-label={i18n.t("more")}
@@ -745,7 +808,7 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
   get viewSourceButton() {
     return (
       <button
-        class="btn btn-link btn-animate text-muted py-0"
+        className="btn btn-link btn-animate text-muted py-0"
         onClick={linkEvent(this, this.handleViewSource)}
         data-tippy-content={i18n.t("view_source")}
         aria-label={i18n.t("view_source")}
@@ -764,7 +827,7 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
     let label = locked ? i18n.t("unlock") : i18n.t("lock");
     return (
       <button
-        class="btn btn-link btn-animate text-muted py-0"
+        className="btn btn-link btn-animate text-muted py-0"
         onClick={linkEvent(this, this.handleModLock)}
         data-tippy-content={label}
         aria-label={label}
@@ -778,22 +841,48 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
     );
   }
 
-  get stickyButton() {
-    let stickied = this.props.post_view.post.stickied;
-    let label = stickied ? i18n.t("unsticky") : i18n.t("sticky");
+  get featureButton() {
+    const featured_community = this.props.post_view.post.featured_community;
+    const label_community = featured_community
+      ? i18n.t("unfeature_from_community")
+      : i18n.t("feature_in_community");
+
+    const is_admin = amAdmin();
+    const featured_local = this.props.post_view.post.featured_local;
+    const label_local = featured_local
+      ? i18n.t("unfeature_from_local")
+      : i18n.t("feature_in_local");
     return (
-      <button
-        class="btn btn-link btn-animate text-muted py-0"
-        onClick={linkEvent(this, this.handleModSticky)}
-        data-tippy-content={label}
-        aria-label={label}
-      >
-        <Icon
-          icon="pin"
-          classes={classNames({ "text-success": stickied })}
-          inline
-        />
-      </button>
+      <span>
+        <button
+          className="btn btn-link btn-animate text-muted py-0 pl-0"
+          onClick={() => this.handleModFeaturePost(this, true)}
+          data-tippy-content={label_community}
+          aria-label={label_community}
+        >
+          <Icon
+            icon="pin"
+            classes={classNames({ "text-success": featured_community })}
+            inline
+          />{" "}
+          Community
+        </button>
+        {is_admin && (
+          <button
+            className="btn btn-link btn-animate text-muted py-0"
+            onClick={() => this.handleModFeaturePost(this, false)}
+            data-tippy-content={label_local}
+            aria-label={label_local}
+          >
+            <Icon
+              icon="pin"
+              classes={classNames({ "text-success": featured_local })}
+              inline
+            />{" "}
+            Local
+          </button>
+        )}
+      </span>
     );
   }
 
@@ -801,7 +890,7 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
     let removed = this.props.post_view.post.removed;
     return (
       <button
-        class="btn btn-link btn-animate text-muted py-0"
+        className="btn btn-link btn-animate text-muted py-0"
         onClick={linkEvent(
           this,
           !removed ? this.handleModRemoveShow : this.handleModRemoveSubmit
@@ -822,12 +911,12 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
     return (
       this.state.showAdvanced && (
         <>
-          {this.canMod && (
+          {this.canMod_ && (
             <>
-              {!this.creatorIsMod &&
+              {!this.creatorIsMod_ &&
                 (!post_view.creator_banned_from_community ? (
                   <button
-                    class="btn btn-link btn-animate text-muted py-0"
+                    className="btn btn-link btn-animate text-muted py-0"
                     onClick={linkEvent(
                       this,
                       this.handleModBanFromCommunityShow
@@ -838,7 +927,7 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
                   </button>
                 ) : (
                   <button
-                    class="btn btn-link btn-animate text-muted py-0"
+                    className="btn btn-link btn-animate text-muted py-0"
                     onClick={linkEvent(
                       this,
                       this.handleModBanFromCommunitySubmit
@@ -850,15 +939,15 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
                 ))}
               {!post_view.creator_banned_from_community && (
                 <button
-                  class="btn btn-link btn-animate text-muted py-0"
+                  className="btn btn-link btn-animate text-muted py-0"
                   onClick={linkEvent(this, this.handleAddModToCommunity)}
                   aria-label={
-                    this.creatorIsMod
+                    this.creatorIsMod_
                       ? i18n.t("remove_as_mod")
                       : i18n.t("appoint_as_mod")
                   }
                 >
-                  {this.creatorIsMod
+                  {this.creatorIsMod_
                     ? i18n.t("remove_as_mod")
                     : i18n.t("appoint_as_mod")}
                 </button>
@@ -866,11 +955,12 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
             </>
           )}
           {/* Community creators and admins can transfer community to another mod */}
-          {(this.amCommunityCreator || this.canAdmin) &&
-            this.creatorIsMod &&
+          {(amCommunityCreator(post_view.creator.id, this.props.moderators) ||
+            this.canAdmin_) &&
+            this.creatorIsMod_ &&
             (!this.state.showConfirmTransferCommunity ? (
               <button
-                class="btn btn-link btn-animate text-muted py-0"
+                className="btn btn-link btn-animate text-muted py-0"
                 onClick={linkEvent(
                   this,
                   this.handleShowConfirmTransferCommunity
@@ -882,20 +972,20 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
             ) : (
               <>
                 <button
-                  class="d-inline-block mr-1 btn btn-link btn-animate text-muted py-0"
+                  className="d-inline-block mr-1 btn btn-link btn-animate text-muted py-0"
                   aria-label={i18n.t("are_you_sure")}
                 >
                   {i18n.t("are_you_sure")}
                 </button>
                 <button
-                  class="btn btn-link btn-animate text-muted py-0 d-inline-block mr-1"
+                  className="btn btn-link btn-animate text-muted py-0 d-inline-block mr-1"
                   aria-label={i18n.t("yes")}
                   onClick={linkEvent(this, this.handleTransferCommunity)}
                 >
                   {i18n.t("yes")}
                 </button>
                 <button
-                  class="btn btn-link btn-animate text-muted py-0 d-inline-block"
+                  className="btn btn-link btn-animate text-muted py-0 d-inline-block"
                   onClick={linkEvent(
                     this,
                     this.handleCancelShowConfirmTransferCommunity
@@ -907,37 +997,54 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
               </>
             ))}
           {/* Admins can ban from all, and appoint other admins */}
-          {this.canAdmin && (
+          {this.canAdmin_ && (
             <>
-              {!this.creatorIsAdmin &&
-                (!isBanned(post_view.creator) ? (
+              {!this.creatorIsAdmin_ && (
+                <>
+                  {!isBanned(post_view.creator) ? (
+                    <button
+                      className="btn btn-link btn-animate text-muted py-0"
+                      onClick={linkEvent(this, this.handleModBanShow)}
+                      aria-label={i18n.t("ban_from_site")}
+                    >
+                      {i18n.t("ban_from_site")}
+                    </button>
+                  ) : (
+                    <button
+                      className="btn btn-link btn-animate text-muted py-0"
+                      onClick={linkEvent(this, this.handleModBanSubmit)}
+                      aria-label={i18n.t("unban_from_site")}
+                    >
+                      {i18n.t("unban_from_site")}
+                    </button>
+                  )}
                   <button
-                    class="btn btn-link btn-animate text-muted py-0"
-                    onClick={linkEvent(this, this.handleModBanShow)}
-                    aria-label={i18n.t("ban_from_site")}
+                    className="btn btn-link btn-animate text-muted py-0"
+                    onClick={linkEvent(this, this.handlePurgePersonShow)}
+                    aria-label={i18n.t("purge_user")}
                   >
-                    {i18n.t("ban_from_site")}
+                    {i18n.t("purge_user")}
                   </button>
-                ) : (
                   <button
-                    class="btn btn-link btn-animate text-muted py-0"
-                    onClick={linkEvent(this, this.handleModBanSubmit)}
-                    aria-label={i18n.t("unban_from_site")}
+                    className="btn btn-link btn-animate text-muted py-0"
+                    onClick={linkEvent(this, this.handlePurgePostShow)}
+                    aria-label={i18n.t("purge_post")}
                   >
-                    {i18n.t("unban_from_site")}
+                    {i18n.t("purge_post")}
                   </button>
-                ))}
+                </>
+              )}
               {!isBanned(post_view.creator) && post_view.creator.local && (
                 <button
-                  class="btn btn-link btn-animate text-muted py-0"
+                  className="btn btn-link btn-animate text-muted py-0"
                   onClick={linkEvent(this, this.handleAddAdmin)}
                   aria-label={
-                    this.creatorIsAdmin
+                    this.creatorIsAdmin_
                       ? i18n.t("remove_as_admin")
                       : i18n.t("appoint_as_admin")
                   }
                 >
-                  {this.creatorIsAdmin
+                  {this.creatorIsAdmin_
                     ? i18n.t("remove_as_admin")
                     : i18n.t("appoint_as_admin")}
                 </button>
@@ -951,27 +1058,31 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
 
   removeAndBanDialogs() {
     let post = this.props.post_view;
+    let purgeTypeText =
+      this.state.purgeType == PurgeType.Post
+        ? i18n.t("purge_post")
+        : `${i18n.t("purge")} ${post.creator.name}`;
     return (
       <>
         {this.state.showRemoveDialog && (
           <form
-            class="form-inline"
+            className="form-inline"
             onSubmit={linkEvent(this, this.handleModRemoveSubmit)}
           >
-            <label class="sr-only" htmlFor="post-listing-remove-reason">
+            <label className="sr-only" htmlFor="post-listing-remove-reason">
               {i18n.t("reason")}
             </label>
             <input
               type="text"
               id="post-listing-remove-reason"
-              class="form-control mr-2"
+              className="form-control mr-2"
               placeholder={i18n.t("reason")}
               value={this.state.removeReason}
               onInput={linkEvent(this, this.handleModRemoveReasonChange)}
             />
             <button
               type="submit"
-              class="btn btn-secondary"
+              className="btn btn-secondary"
               aria-label={i18n.t("remove_post")}
             >
               {i18n.t("remove_post")}
@@ -980,40 +1091,43 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
         )}
         {this.state.showBanDialog && (
           <form onSubmit={linkEvent(this, this.handleModBanBothSubmit)}>
-            <div class="form-group row col-12">
-              <label class="col-form-label" htmlFor="post-listing-ban-reason">
+            <div className="form-group row col-12">
+              <label
+                className="col-form-label"
+                htmlFor="post-listing-ban-reason"
+              >
                 {i18n.t("reason")}
               </label>
               <input
                 type="text"
                 id="post-listing-ban-reason"
-                class="form-control mr-2"
+                className="form-control mr-2"
                 placeholder={i18n.t("reason")}
                 value={this.state.banReason}
                 onInput={linkEvent(this, this.handleModBanReasonChange)}
               />
-              <label class="col-form-label" htmlFor={`mod-ban-expires`}>
+              <label className="col-form-label" htmlFor={`mod-ban-expires`}>
                 {i18n.t("expires")}
               </label>
               <input
                 type="number"
                 id={`mod-ban-expires`}
-                class="form-control mr-2"
+                className="form-control mr-2"
                 placeholder={i18n.t("number_of_days")}
                 value={this.state.banExpireDays}
                 onInput={linkEvent(this, this.handleModBanExpireDaysChange)}
               />
-              <div class="form-group">
-                <div class="form-check">
+              <div className="form-group">
+                <div className="form-check">
                   <input
-                    class="form-check-input"
+                    className="form-check-input"
                     id="mod-ban-remove-data"
                     type="checkbox"
                     checked={this.state.removeData}
                     onChange={linkEvent(this, this.handleModRemoveDataChange)}
                   />
                   <label
-                    class="form-check-label"
+                    className="form-check-label"
                     htmlFor="mod-ban-remove-data"
                     title={i18n.t("remove_content_more")}
                   >
@@ -1027,10 +1141,10 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
             {/*   <label class="col-form-label">Expires</label> */}
             {/*   <input type="date" class="form-control mr-2" placeholder={i18n.t('expires')} value={this.state.banExpires} onInput={linkEvent(this, this.handleModBanExpiresChange)} /> */}
             {/* </div> */}
-            <div class="form-group row">
+            <div className="form-group row">
               <button
                 type="submit"
-                class="btn btn-secondary"
+                className="btn btn-secondary"
                 aria-label={i18n.t("ban")}
               >
                 {i18n.t("ban")} {post.creator.name}
@@ -1040,16 +1154,16 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
         )}
         {this.state.showReportDialog && (
           <form
-            class="form-inline"
+            className="form-inline"
             onSubmit={linkEvent(this, this.handleReportSubmit)}
           >
-            <label class="sr-only" htmlFor="post-report-reason">
+            <label className="sr-only" htmlFor="post-report-reason">
               {i18n.t("reason")}
             </label>
             <input
               type="text"
               id="post-report-reason"
-              class="form-control mr-2"
+              className="form-control mr-2"
               placeholder={i18n.t("reason")}
               required
               value={this.state.reportReason}
@@ -1057,11 +1171,41 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
             />
             <button
               type="submit"
-              class="btn btn-secondary"
+              className="btn btn-secondary"
               aria-label={i18n.t("create_report")}
             >
               {i18n.t("create_report")}
             </button>
+          </form>
+        )}
+        {this.state.showPurgeDialog && (
+          <form
+            className="form-inline"
+            onSubmit={linkEvent(this, this.handlePurgeSubmit)}
+          >
+            <PurgeWarning />
+            <label className="sr-only" htmlFor="purge-reason">
+              {i18n.t("reason")}
+            </label>
+            <input
+              type="text"
+              id="purge-reason"
+              className="form-control mr-2"
+              placeholder={i18n.t("reason")}
+              value={this.state.purgeReason}
+              onInput={linkEvent(this, this.handlePurgeReasonChange)}
+            />
+            {this.state.purgeLoading ? (
+              <Spinner />
+            ) : (
+              <button
+                type="submit"
+                className="btn btn-secondary"
+                aria-label={purgeTypeText}
+              >
+                {purgeTypeText}
+              </button>
+            )}
           </form>
         )}
       </>
@@ -1070,12 +1214,12 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
 
   mobileThumbnail() {
     let post = this.props.post_view.post;
-    return post.thumbnail_url || isImage(post.url) ? (
-      <div class="row">
+    return post.thumbnail_url || (post.url && isImage(post.url)) ? (
+      <div className="row">
         <div className={`${this.state.imageExpanded ? "col-12" : "col-8"}`}>
           {this.postTitleLine()}
         </div>
-        <div class="col-4">
+        <div className="col-4">
           {/* Post body prev or thumbnail */}
           {!this.state.imageExpanded && this.thumbnail()}
         </div>
@@ -1086,12 +1230,11 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
   }
 
   showMobilePreview() {
-    let post = this.props.post_view.post;
-    return (
-      post.body &&
-      !this.showBody && (
-        <div className="md-div mb-1 preview-lines">{post.body}</div>
-      )
+    let body = this.props.post_view.post.body;
+    return !this.showBody && body ? (
+      <div className="md-div mb-1 preview-lines">{body}</div>
+    ) : (
+      <></>
     );
   }
 
@@ -1099,9 +1242,9 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
     return (
       <>
         {/* The mobile view*/}
-        <div class="d-block d-sm-none">
-          <div class="row">
-            <div class="col-12">
+        <div className="d-block d-sm-none">
+          <div className="row">
+            <div className="col-12">
               {this.createdLine()}
 
               {/* If it has a thumbnail, do a right aligned thumbnail */}
@@ -1119,14 +1262,14 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
         </div>
 
         {/* The larger view*/}
-        <div class="d-none d-sm-block">
-          <div class="row">
+        <div className="d-none d-sm-block">
+          <div className="row">
             {!this.props.viewOnly && this.voteBar()}
-            <div class="col-sm-2 pr-0">
-              <div class="">{this.thumbnail()}</div>
+            <div className="col-sm-2 pr-0">
+              <div className="">{this.thumbnail()}</div>
             </div>
-            <div class="col-12 col-sm-9">
-              <div class="row">
+            <div className="col-12 col-sm-9">
+              <div className="row">
                 <div className="col-12">
                   {this.postTitleLine()}
                   {this.createdLine()}
@@ -1145,239 +1288,170 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
 
   private get myPost(): boolean {
     return (
-      UserService.Instance.myUserInfo &&
       this.props.post_view.creator.id ==
-        UserService.Instance.myUserInfo.local_user_view.person.id
+      UserService.Instance.myUserInfo?.local_user_view.person.id
     );
   }
 
-  get creatorIsMod(): boolean {
-    return (
-      this.props.moderators &&
-      isMod(
-        this.props.moderators.map(m => m.moderator.id),
-        this.props.post_view.creator.id
-      )
-    );
-  }
-
-  get creatorIsAdmin(): boolean {
-    return (
-      this.props.admins &&
-      isMod(
-        this.props.admins.map(a => a.person.id),
-        this.props.post_view.creator.id
-      )
-    );
-  }
-
-  /**
-   * If the current user is allowed to mod this post.
-   * The creator of this post is not allowed even if they are a mod.
-   */
-  get canMod(): boolean {
-    if (this.props.admins && this.props.moderators) {
-      let adminsThenMods = this.props.admins
-        .map(a => a.person.id)
-        .concat(this.props.moderators.map(m => m.moderator.id));
-
-      return canMod(
-        UserService.Instance.myUserInfo,
-        adminsThenMods,
-        this.props.post_view.creator.id
-      );
-    } else {
-      return false;
-    }
-  }
-
-  /**
-   * If the current user is allowed to mod this post.
-   * The creator of this post is allowed if they are a mod.
-   */
-  get canModOnSelf(): boolean {
-    if (this.props.admins && this.props.moderators) {
-      let adminsThenMods = this.props.admins
-        .map(a => a.person.id)
-        .concat(this.props.moderators.map(m => m.moderator.id));
-
-      return canMod(
-        UserService.Instance.myUserInfo,
-        adminsThenMods,
-        this.props.post_view.creator.id,
-        true
-      );
-    } else {
-      return false;
-    }
-  }
-
-  get canAdmin(): boolean {
-    return (
-      this.props.admins &&
-      canMod(
-        UserService.Instance.myUserInfo,
-        this.props.admins.map(a => a.person.id),
-        this.props.post_view.creator.id
-      )
-    );
-  }
-
-  get amCommunityCreator(): boolean {
-    return (
-      this.props.moderators &&
-      UserService.Instance.myUserInfo &&
-      this.props.post_view.creator.id !=
-        UserService.Instance.myUserInfo.local_user_view.person.id &&
-      UserService.Instance.myUserInfo.local_user_view.person.id ==
-        this.props.moderators[0].moderator.id
-    );
-  }
-
-  get amSiteCreator(): boolean {
-    return (
-      this.props.admins &&
-      UserService.Instance.myUserInfo &&
-      this.props.post_view.creator.id !=
-        UserService.Instance.myUserInfo.local_user_view.person.id &&
-      UserService.Instance.myUserInfo.local_user_view.person.id ==
-        this.props.admins[0].person.id
-    );
-  }
-
-  handlePostLike(i: PostListing, event: any) {
+  handlePostLike(event: any) {
     event.preventDefault();
     if (!UserService.Instance.myUserInfo) {
       this.context.router.history.push(`/login`);
     }
 
-    let new_vote = i.state.my_vote == 1 ? 0 : 1;
+    let myVote = this.state.my_vote;
+    let newVote = myVote == 1 ? 0 : 1;
 
-    if (i.state.my_vote == 1) {
-      i.state.score--;
-      i.state.upvotes--;
-    } else if (i.state.my_vote == -1) {
-      i.state.downvotes--;
-      i.state.upvotes++;
-      i.state.score += 2;
+    if (myVote == 1) {
+      this.setState({
+        score: this.state.score - 1,
+        upvotes: this.state.upvotes - 1,
+      });
+    } else if (myVote == -1) {
+      this.setState({
+        score: this.state.score + 2,
+        upvotes: this.state.upvotes + 1,
+        downvotes: this.state.downvotes - 1,
+      });
     } else {
-      i.state.upvotes++;
-      i.state.score++;
+      this.setState({
+        score: this.state.score + 1,
+        upvotes: this.state.upvotes + 1,
+      });
     }
 
-    i.state.my_vote = new_vote;
+    this.setState({ my_vote: newVote });
 
-    let form: CreatePostLike = {
-      post_id: i.props.post_view.post.id,
-      score: i.state.my_vote,
-      auth: authField(),
-    };
+    let auth = myAuth();
+    if (auth) {
+      let form: CreatePostLike = {
+        post_id: this.props.post_view.post.id,
+        score: newVote,
+        auth,
+      };
 
-    WebSocketService.Instance.send(wsClient.likePost(form));
-    i.setState(i.state);
+      WebSocketService.Instance.send(wsClient.likePost(form));
+      this.setState(this.state);
+    }
     setupTippy();
   }
 
-  handlePostDisLike(i: PostListing, event: any) {
+  handlePostDisLike(event: any) {
     event.preventDefault();
     if (!UserService.Instance.myUserInfo) {
       this.context.router.history.push(`/login`);
     }
 
-    let new_vote = i.state.my_vote == -1 ? 0 : -1;
+    let myVote = this.state.my_vote;
+    let newVote = myVote == -1 ? 0 : -1;
 
-    if (i.state.my_vote == 1) {
-      i.state.score -= 2;
-      i.state.upvotes--;
-      i.state.downvotes++;
-    } else if (i.state.my_vote == -1) {
-      i.state.downvotes--;
-      i.state.score++;
+    if (myVote == 1) {
+      this.setState({
+        score: this.state.score - 2,
+        upvotes: this.state.upvotes - 1,
+        downvotes: this.state.downvotes + 1,
+      });
+    } else if (myVote == -1) {
+      this.setState({
+        score: this.state.score + 1,
+        downvotes: this.state.downvotes - 1,
+      });
     } else {
-      i.state.downvotes++;
-      i.state.score--;
+      this.setState({
+        score: this.state.score - 1,
+        downvotes: this.state.downvotes + 1,
+      });
     }
 
-    i.state.my_vote = new_vote;
+    this.setState({ my_vote: newVote });
 
-    let form: CreatePostLike = {
-      post_id: i.props.post_view.post.id,
-      score: i.state.my_vote,
-      auth: authField(),
-    };
+    let auth = myAuth();
+    if (auth) {
+      let form: CreatePostLike = {
+        post_id: this.props.post_view.post.id,
+        score: newVote,
+        auth,
+      };
 
-    WebSocketService.Instance.send(wsClient.likePost(form));
-    i.setState(i.state);
+      WebSocketService.Instance.send(wsClient.likePost(form));
+      this.setState(this.state);
+    }
     setupTippy();
   }
 
   handleEditClick(i: PostListing) {
-    i.state.showEdit = true;
-    i.setState(i.state);
+    i.setState({ showEdit: true });
   }
 
   handleEditCancel() {
-    this.state.showEdit = false;
-    this.setState(this.state);
+    this.setState({ showEdit: false });
   }
 
   // The actual editing is done in the recieve for post
   handleEditPost() {
-    this.state.showEdit = false;
-    this.setState(this.state);
+    this.setState({ showEdit: false });
   }
 
   handleShowReportDialog(i: PostListing) {
-    i.state.showReportDialog = !i.state.showReportDialog;
-    i.setState(this.state);
+    i.setState({ showReportDialog: !i.state.showReportDialog });
   }
 
   handleReportReasonChange(i: PostListing, event: any) {
-    i.state.reportReason = event.target.value;
-    i.setState(i.state);
+    i.setState({ reportReason: event.target.value });
   }
 
   handleReportSubmit(i: PostListing, event: any) {
     event.preventDefault();
-    let form: CreatePostReport = {
-      post_id: i.props.post_view.post.id,
-      reason: i.state.reportReason,
-      auth: authField(),
-    };
-    WebSocketService.Instance.send(wsClient.createPostReport(form));
+    let auth = myAuth();
+    let reason = i.state.reportReason;
+    if (auth && reason) {
+      let form: CreatePostReport = {
+        post_id: i.props.post_view.post.id,
+        reason,
+        auth,
+      };
+      WebSocketService.Instance.send(wsClient.createPostReport(form));
 
-    i.state.showReportDialog = false;
-    i.setState(i.state);
+      i.setState({ showReportDialog: false });
+    }
   }
 
   handleBlockUserClick(i: PostListing) {
-    let blockUserForm: BlockPerson = {
-      person_id: i.props.post_view.creator.id,
-      block: true,
-      auth: authField(),
-    };
-    WebSocketService.Instance.send(wsClient.blockPerson(blockUserForm));
+    let auth = myAuth();
+    if (auth) {
+      let blockUserForm: BlockPerson = {
+        person_id: i.props.post_view.creator.id,
+        block: true,
+        auth,
+      };
+      WebSocketService.Instance.send(wsClient.blockPerson(blockUserForm));
+    }
   }
 
   handleDeleteClick(i: PostListing) {
-    let deleteForm: DeletePost = {
-      post_id: i.props.post_view.post.id,
-      deleted: !i.props.post_view.post.deleted,
-      auth: authField(),
-    };
-    WebSocketService.Instance.send(wsClient.deletePost(deleteForm));
+    let auth = myAuth();
+    if (auth) {
+      let deleteForm: DeletePost = {
+        post_id: i.props.post_view.post.id,
+        deleted: !i.props.post_view.post.deleted,
+        auth,
+      };
+      WebSocketService.Instance.send(wsClient.deletePost(deleteForm));
+    }
   }
 
   handleSavePostClick(i: PostListing) {
-    let saved =
-      i.props.post_view.saved == undefined ? true : !i.props.post_view.saved;
-    let form: SavePost = {
-      post_id: i.props.post_view.post.id,
-      save: saved,
-      auth: authField(),
-    };
-
-    WebSocketService.Instance.send(wsClient.savePost(form));
+    let auth = myAuth();
+    if (auth) {
+      let saved =
+        i.props.post_view.saved == undefined ? true : !i.props.post_view.saved;
+      let form: SavePost = {
+        post_id: i.props.post_view.post.id,
+        save: saved,
+        auth,
+      };
+      WebSocketService.Instance.send(wsClient.savePost(form));
+    }
   }
 
   get crossPostParams(): string {
@@ -1387,18 +1461,23 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
     if (post.url) {
       params += `&url=${encodeURIComponent(post.url)}`;
     }
-    if (post.body) {
-      params += `&body=${encodeURIComponent(this.crossPostBody())}`;
+    let crossPostBody = this.crossPostBody();
+    if (crossPostBody) {
+      params += `&body=${encodeURIComponent(crossPostBody)}`;
     }
     return params;
   }
 
-  crossPostBody(): string {
+  crossPostBody(): string | undefined {
     let post = this.props.post_view.post;
-    let body = `${i18n.t("cross_posted_from")} ${
-      post.ap_id
-    }\n\n${post.body.replace(/^/gm, "> ")}`;
-    return body;
+    let body = post.body;
+
+    return body
+      ? `${i18n.t("cross_posted_from")} ${post.ap_id}\n\n${body.replace(
+          /^/gm,
+          "> "
+        )}`
+      : undefined;
   }
 
   get showBody(): boolean {
@@ -1406,209 +1485,275 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
   }
 
   handleModRemoveShow(i: PostListing) {
-    i.state.showRemoveDialog = !i.state.showRemoveDialog;
-    i.state.showBanDialog = false;
-    i.setState(i.state);
+    i.setState({
+      showRemoveDialog: !i.state.showRemoveDialog,
+      showBanDialog: false,
+    });
   }
 
   handleModRemoveReasonChange(i: PostListing, event: any) {
-    i.state.removeReason = event.target.value;
-    i.setState(i.state);
+    i.setState({ removeReason: event.target.value });
   }
 
   handleModRemoveDataChange(i: PostListing, event: any) {
-    i.state.removeData = event.target.checked;
-    i.setState(i.state);
+    i.setState({ removeData: event.target.checked });
   }
 
   handleModRemoveSubmit(i: PostListing, event: any) {
     event.preventDefault();
-    let form: RemovePost = {
-      post_id: i.props.post_view.post.id,
-      removed: !i.props.post_view.post.removed,
-      reason: i.state.removeReason,
-      auth: authField(),
-    };
-    WebSocketService.Instance.send(wsClient.removePost(form));
 
-    i.state.showRemoveDialog = false;
-    i.setState(i.state);
+    let auth = myAuth();
+    if (auth) {
+      let form: RemovePost = {
+        post_id: i.props.post_view.post.id,
+        removed: !i.props.post_view.post.removed,
+        reason: i.state.removeReason,
+        auth,
+      };
+      WebSocketService.Instance.send(wsClient.removePost(form));
+      i.setState({ showRemoveDialog: false });
+    }
   }
 
   handleModLock(i: PostListing) {
-    let form: LockPost = {
-      post_id: i.props.post_view.post.id,
-      locked: !i.props.post_view.post.locked,
-      auth: authField(),
-    };
-    WebSocketService.Instance.send(wsClient.lockPost(form));
+    let auth = myAuth();
+    if (auth) {
+      let form: LockPost = {
+        post_id: i.props.post_view.post.id,
+        locked: !i.props.post_view.post.locked,
+        auth,
+      };
+      WebSocketService.Instance.send(wsClient.lockPost(form));
+    }
   }
 
-  handleModSticky(i: PostListing) {
-    let form: StickyPost = {
-      post_id: i.props.post_view.post.id,
-      stickied: !i.props.post_view.post.stickied,
-      auth: authField(),
-    };
-    WebSocketService.Instance.send(wsClient.stickyPost(form));
+  handleModFeaturePost(i: PostListing, is_community: boolean) {
+    let auth = myAuth();
+    if (auth) {
+      let featured: [PostFeatureType, boolean] = is_community
+        ? [
+            PostFeatureType.Community,
+            !i.props.post_view.post.featured_community,
+          ]
+        : [PostFeatureType.Local, !i.props.post_view.post.featured_local];
+
+      let form: FeaturePost = {
+        post_id: i.props.post_view.post.id,
+        feature_type: featured[0],
+        featured: featured[1],
+        auth,
+      };
+      WebSocketService.Instance.send(wsClient.featurePost(form));
+    }
   }
 
   handleModBanFromCommunityShow(i: PostListing) {
-    i.state.showBanDialog = true;
-    i.state.banType = BanType.Community;
-    i.state.showRemoveDialog = false;
-    i.setState(i.state);
+    i.setState({
+      showBanDialog: true,
+      banType: BanType.Community,
+      showRemoveDialog: false,
+    });
   }
 
   handleModBanShow(i: PostListing) {
-    i.state.showBanDialog = true;
-    i.state.banType = BanType.Site;
-    i.state.showRemoveDialog = false;
-    i.setState(i.state);
+    i.setState({
+      showBanDialog: true,
+      banType: BanType.Site,
+      showRemoveDialog: false,
+    });
+  }
+
+  handlePurgePersonShow(i: PostListing) {
+    i.setState({
+      showPurgeDialog: true,
+      purgeType: PurgeType.Person,
+      showRemoveDialog: false,
+    });
+  }
+
+  handlePurgePostShow(i: PostListing) {
+    i.setState({
+      showPurgeDialog: true,
+      purgeType: PurgeType.Post,
+      showRemoveDialog: false,
+    });
+  }
+
+  handlePurgeReasonChange(i: PostListing, event: any) {
+    i.setState({ purgeReason: event.target.value });
+  }
+
+  handlePurgeSubmit(i: PostListing, event: any) {
+    event.preventDefault();
+
+    let auth = myAuth();
+    if (auth) {
+      if (i.state.purgeType == PurgeType.Person) {
+        let form: PurgePerson = {
+          person_id: i.props.post_view.creator.id,
+          reason: i.state.purgeReason,
+          auth,
+        };
+        WebSocketService.Instance.send(wsClient.purgePerson(form));
+      } else if (i.state.purgeType == PurgeType.Post) {
+        let form: PurgePost = {
+          post_id: i.props.post_view.post.id,
+          reason: i.state.purgeReason,
+          auth,
+        };
+        WebSocketService.Instance.send(wsClient.purgePost(form));
+      }
+
+      i.setState({ purgeLoading: true });
+    }
   }
 
   handleModBanReasonChange(i: PostListing, event: any) {
-    i.state.banReason = event.target.value;
-    i.setState(i.state);
+    i.setState({ banReason: event.target.value });
   }
 
   handleModBanExpireDaysChange(i: PostListing, event: any) {
-    i.state.banExpireDays = event.target.value;
-    i.setState(i.state);
+    i.setState({ banExpireDays: event.target.value });
   }
 
   handleModBanFromCommunitySubmit(i: PostListing) {
-    i.state.banType = BanType.Community;
-    i.setState(i.state);
+    i.setState({ banType: BanType.Community });
     i.handleModBanBothSubmit(i);
   }
 
   handleModBanSubmit(i: PostListing) {
-    i.state.banType = BanType.Site;
-    i.setState(i.state);
+    i.setState({ banType: BanType.Site });
     i.handleModBanBothSubmit(i);
   }
 
   handleModBanBothSubmit(i: PostListing, event?: any) {
     if (event) event.preventDefault();
-
-    if (i.state.banType == BanType.Community) {
-      // If its an unban, restore all their data
+    let auth = myAuth();
+    if (auth) {
       let ban = !i.props.post_view.creator_banned_from_community;
-      if (ban == false) {
-        i.state.removeData = false;
-      }
-      let form: BanFromCommunity = {
-        person_id: i.props.post_view.creator.id,
-        community_id: i.props.post_view.community.id,
-        ban,
-        remove_data: i.state.removeData,
-        reason: i.state.banReason,
-        expires: futureDaysToUnixTime(i.state.banExpireDays),
-        auth: authField(),
-      };
-      WebSocketService.Instance.send(wsClient.banFromCommunity(form));
-    } else {
-      // If its an unban, restore all their data
-      let ban = !i.props.post_view.creator.banned;
-      if (ban == false) {
-        i.state.removeData = false;
-      }
-      let form: BanPerson = {
-        person_id: i.props.post_view.creator.id,
-        ban,
-        remove_data: i.state.removeData,
-        reason: i.state.banReason,
-        expires: futureDaysToUnixTime(i.state.banExpireDays),
-        auth: authField(),
-      };
-      WebSocketService.Instance.send(wsClient.banPerson(form));
-    }
+      let person_id = i.props.post_view.creator.id;
+      let remove_data = i.state.removeData;
+      let reason = i.state.banReason;
+      let expires = futureDaysToUnixTime(i.state.banExpireDays);
 
-    i.state.showBanDialog = false;
-    i.setState(i.state);
+      if (i.state.banType == BanType.Community) {
+        // If its an unban, restore all their data
+        if (ban == false) {
+          i.setState({ removeData: false });
+        }
+
+        let form: BanFromCommunity = {
+          person_id,
+          community_id: i.props.post_view.community.id,
+          ban,
+          remove_data,
+          reason,
+          expires,
+          auth,
+        };
+        WebSocketService.Instance.send(wsClient.banFromCommunity(form));
+      } else {
+        // If its an unban, restore all their data
+        let ban = !i.props.post_view.creator.banned;
+        if (ban == false) {
+          i.setState({ removeData: false });
+        }
+        let form: BanPerson = {
+          person_id,
+          ban,
+          remove_data,
+          reason,
+          expires,
+          auth,
+        };
+        WebSocketService.Instance.send(wsClient.banPerson(form));
+      }
+
+      i.setState({ showBanDialog: false });
+    }
   }
 
   handleAddModToCommunity(i: PostListing) {
-    let form: AddModToCommunity = {
-      person_id: i.props.post_view.creator.id,
-      community_id: i.props.post_view.community.id,
-      added: !i.creatorIsMod,
-      auth: authField(),
-    };
-    WebSocketService.Instance.send(wsClient.addModToCommunity(form));
-    i.setState(i.state);
+    let auth = myAuth();
+    if (auth) {
+      let form: AddModToCommunity = {
+        person_id: i.props.post_view.creator.id,
+        community_id: i.props.post_view.community.id,
+        added: !i.creatorIsMod_,
+        auth,
+      };
+      WebSocketService.Instance.send(wsClient.addModToCommunity(form));
+      i.setState(i.state);
+    }
   }
 
   handleAddAdmin(i: PostListing) {
-    let form: AddAdmin = {
-      person_id: i.props.post_view.creator.id,
-      added: !i.creatorIsAdmin,
-      auth: authField(),
-    };
-    WebSocketService.Instance.send(wsClient.addAdmin(form));
-    i.setState(i.state);
+    let auth = myAuth();
+    if (auth) {
+      let form: AddAdmin = {
+        person_id: i.props.post_view.creator.id,
+        added: !i.creatorIsAdmin_,
+        auth,
+      };
+      WebSocketService.Instance.send(wsClient.addAdmin(form));
+      i.setState(i.state);
+    }
   }
 
   handleShowConfirmTransferCommunity(i: PostListing) {
-    i.state.showConfirmTransferCommunity = true;
-    i.setState(i.state);
+    i.setState({ showConfirmTransferCommunity: true });
   }
 
   handleCancelShowConfirmTransferCommunity(i: PostListing) {
-    i.state.showConfirmTransferCommunity = false;
-    i.setState(i.state);
+    i.setState({ showConfirmTransferCommunity: false });
   }
 
   handleTransferCommunity(i: PostListing) {
-    let form: TransferCommunity = {
-      community_id: i.props.post_view.community.id,
-      person_id: i.props.post_view.creator.id,
-      auth: authField(),
-    };
-    WebSocketService.Instance.send(wsClient.transferCommunity(form));
-    i.state.showConfirmTransferCommunity = false;
-    i.setState(i.state);
+    let auth = myAuth();
+    if (auth) {
+      let form: TransferCommunity = {
+        community_id: i.props.post_view.community.id,
+        person_id: i.props.post_view.creator.id,
+        auth,
+      };
+      WebSocketService.Instance.send(wsClient.transferCommunity(form));
+      i.setState({ showConfirmTransferCommunity: false });
+    }
   }
 
   handleShowConfirmTransferSite(i: PostListing) {
-    i.state.showConfirmTransferSite = true;
-    i.setState(i.state);
+    i.setState({ showConfirmTransferSite: true });
   }
 
   handleCancelShowConfirmTransferSite(i: PostListing) {
-    i.state.showConfirmTransferSite = false;
-    i.setState(i.state);
+    i.setState({ showConfirmTransferSite: false });
   }
 
   handleImageExpandClick(i: PostListing, event: any) {
     event.preventDefault();
-    i.state.imageExpanded = !i.state.imageExpanded;
-    i.setState(i.state);
+    i.setState({ imageExpanded: !i.state.imageExpanded });
     setupTippy();
   }
 
   handleViewSource(i: PostListing) {
-    i.state.viewSource = !i.state.viewSource;
-    i.setState(i.state);
+    i.setState({ viewSource: !i.state.viewSource });
   }
 
   handleShowAdvanced(i: PostListing) {
-    i.state.showAdvanced = !i.state.showAdvanced;
-    i.setState(i.state);
+    i.setState({ showAdvanced: !i.state.showAdvanced });
     setupTippy();
   }
 
   handleShowMoreMobile(i: PostListing) {
-    i.state.showMoreMobile = !i.state.showMoreMobile;
-    i.state.showAdvanced = !i.state.showAdvanced;
-    i.setState(i.state);
+    i.setState({
+      showMoreMobile: !i.state.showMoreMobile,
+      showAdvanced: !i.state.showAdvanced,
+    });
     setupTippy();
   }
 
   handleShowBody(i: PostListing) {
-    i.state.showBody = !i.state.showBody;
-    i.setState(i.state);
+    i.setState({ showBody: !i.state.showBody });
     setupTippy();
   }
 
@@ -1629,5 +1774,35 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
     });
 
     return `${points} • ${upvotes} • ${downvotes}`;
+  }
+
+  get canModOnSelf_(): boolean {
+    return canMod(
+      this.props.post_view.creator.id,
+      this.props.moderators,
+      this.props.admins,
+      undefined,
+      true
+    );
+  }
+
+  get canMod_(): boolean {
+    return canMod(
+      this.props.post_view.creator.id,
+      this.props.moderators,
+      this.props.admins
+    );
+  }
+
+  get canAdmin_(): boolean {
+    return canAdmin(this.props.post_view.creator.id, this.props.admins);
+  }
+
+  get creatorIsMod_(): boolean {
+    return isMod(this.props.post_view.creator.id, this.props.moderators);
+  }
+
+  get creatorIsAdmin_(): boolean {
+    return isAdmin(this.props.post_view.creator.id, this.props.admins);
   }
 }

@@ -3,31 +3,31 @@ import emojiShortName from "emoji-short-name";
 import {
   BlockCommunityResponse,
   BlockPersonResponse,
+  Comment as CommentI,
+  CommentNode as CommentNodeI,
   CommentReportView,
+  CommentSortType,
   CommentView,
-  CommunityBlockView,
+  CommunityModeratorView,
   CommunityView,
   GetSiteMetadata,
   GetSiteResponse,
+  Language,
   LemmyHttp,
   LemmyWebsocket,
   ListingType,
-  MyUserInfo,
-  PersonBlockView,
   PersonSafe,
   PersonViewSafe,
   PostReportView,
   PostView,
+  PrivateMessageReportView,
   PrivateMessageView,
   RegistrationApplicationView,
   Search,
   SearchType,
   SortType,
-  UserOperation,
-  WebSocketJsonResponse,
-  WebSocketResponse,
 } from "lemmy-js-client";
-import markdown_it from "markdown-it";
+import { default as MarkdownIt } from "markdown-it";
 import markdown_it_anchor from "markdown-it-anchor";
 import markdown_it_container from "markdown-it-container";
 import markdown_it_footnote from "markdown-it-footnote";
@@ -44,12 +44,7 @@ import tippy from "tippy.js";
 import Toastify from "toastify-js";
 import { httpBase } from "./env";
 import { i18n, languages } from "./i18next";
-import {
-  CommentNode as CommentNodeI,
-  CommentSortType,
-  DataType,
-  IsoData,
-} from "./interfaces";
+import { DataType, IsoData } from "./interfaces";
 import { UserService, WebSocketService } from "./services";
 
 var Tribute: any;
@@ -76,8 +71,11 @@ export const webArchiveUrl = "https://web.archive.org";
 export const elementUrl = "https://element.io";
 
 export const postRefetchSeconds: number = 60 * 1000;
-export const fetchLimit = 20;
+export const fetchLimit = 40;
+export const trendingFetchLimit = 6;
 export const mentionDropdownFetchLimit = 10;
+export const commentTreeMaxDepth = 8;
+export const markdownFieldCharacterLimit = 50000;
 
 export const relTags = "noopener nofollow";
 
@@ -103,25 +101,41 @@ export function randomStr(
     .join("");
 }
 
-export function wsJsonToRes<ResponseType>(
-  msg: WebSocketJsonResponse<ResponseType>
-): WebSocketResponse<ResponseType> {
-  return {
-    op: wsUserOp(msg),
-    data: msg.data,
-  };
-}
+const html5EmbedConfig = {
+  html5embed: {
+    useImageSyntax: true, // Enables video/audio embed with ![]() syntax (default)
+    attributes: {
+      audio: 'controls preload="metadata"',
+      video: 'width="100%" max-height="100%" controls loop preload="metadata"',
+    },
+  },
+};
 
-export function wsUserOp(msg: any): UserOperation {
-  let opStr: string = msg.op;
-  return UserOperation[opStr];
-}
+const spoilerConfig = {
+  validate: (params: string) => {
+    return params.trim().match(/^spoiler\s+(.*)$/);
+  },
 
-export const md = new markdown_it({
+  render: (tokens: any, idx: any) => {
+    var m = tokens[idx].info.trim().match(/^spoiler\s+(.*)$/);
+
+    if (tokens[idx].nesting === 1) {
+      // opening tag
+      return `<details><summary> ${md.utils.escapeHtml(m[1])} </summary>\n`;
+    } else {
+      // closing tag
+      return "</details>\n";
+    }
+  },
+};
+
+const markdownItConfig: MarkdownIt.Options = {
   html: false,
   linkify: true,
   typographer: true,
-})
+};
+
+export const md = new MarkdownIt(markdownItConfig)
   .use(md => {
     const originalRule = md.renderer.rules.image;
     md.renderer.rules.image = function (tokens, idx, options, env, self) {
@@ -170,33 +184,16 @@ export const md = new markdown_it({
   .use(markdown_it_mathjax3)
   .use(taskLists)
   .use(markdown_it_mark)
-  .use(markdown_it_html5_embed, {
-    html5embed: {
-      useImageSyntax: true, // Enables video/audio embed with ![]() syntax (default)
-      attributes: {
-        audio: 'controls preload="metadata"',
-        video:
-          'width="100%" max-height="100%" controls loop preload="metadata"',
-      },
-    },
-  })
-  .use(markdown_it_container, "spoiler", {
-    validate: function (params: any) {
-      return params.trim().match(/^spoiler\s+(.*)$/);
-    },
+  .use(markdown_it_html5_embed, html5EmbedConfig)
+  .use(markdown_it_container, "spoiler", spoilerConfig);
 
-    render: function (tokens: any, idx: any) {
-      var m = tokens[idx].info.trim().match(/^spoiler\s+(.*)$/);
-
-      if (tokens[idx].nesting === 1) {
-        // opening tag
-        return `<details><summary> ${md.utils.escapeHtml(m[1])} </summary>\n`;
-      } else {
-        // closing tag
-        return "</details>\n";
-      }
-    },
-  });
+export const mdNoImages = new MarkdownIt(markdownItConfig)
+  .use(markdown_it_sub)
+  .use(markdown_it_sup)
+  .use(markdown_it_footnote)
+  .use(markdown_it_html5_embed, html5EmbedConfig)
+  .use(markdown_it_container, "spoiler", spoilerConfig)
+  .disable("image");
 
 export function hotRankComment(comment_view: CommentView): number {
   return hotRank(comment_view.counts.score, comment_view.comment.published);
@@ -229,11 +226,19 @@ export function mdToHtml(text: string) {
   return { __html: md.render(text) };
 }
 
-export function getUnixTime(text: string): number {
+export function mdToHtmlNoImages(text: string) {
+  return { __html: mdNoImages.render(text) };
+}
+
+export function mdToHtmlInline(text: string) {
+  return { __html: md.renderInline(text) };
+}
+
+export function getUnixTime(text?: string): number | undefined {
   return text ? new Date(text).getTime() / 1000 : undefined;
 }
 
-export function futureDaysToUnixTime(days: number): number {
+export function futureDaysToUnixTime(days?: number): number | undefined {
   return days
     ? Math.trunc(
         new Date(Date.now() + 1000 * 60 * 60 * 24 * days).getTime() / 1000
@@ -242,30 +247,89 @@ export function futureDaysToUnixTime(days: number): number {
 }
 
 export function canMod(
-  myUserInfo: MyUserInfo,
-  modIds: number[],
   creator_id: number,
+  mods?: CommunityModeratorView[],
+  admins?: PersonViewSafe[],
+  myUserInfo = UserService.Instance.myUserInfo,
   onSelf = false
 ): boolean {
   // You can do moderator actions only on the mods added after you.
+  let adminsThenMods =
+    admins
+      ?.map(a => a.person.id)
+      .concat(mods?.map(m => m.moderator.id) ?? []) ?? [];
+
   if (myUserInfo) {
-    let yourIndex = modIds.findIndex(
+    let myIndex = adminsThenMods.findIndex(
       id => id == myUserInfo.local_user_view.person.id
     );
-    if (yourIndex == -1) {
+    if (myIndex == -1) {
       return false;
     } else {
       // onSelf +1 on mod actions not for yourself, IE ban, remove, etc
-      modIds = modIds.slice(0, yourIndex + (onSelf ? 0 : 1));
-      return !modIds.includes(creator_id);
+      adminsThenMods = adminsThenMods.slice(0, myIndex + (onSelf ? 0 : 1));
+      return !adminsThenMods.includes(creator_id);
     }
   } else {
     return false;
   }
 }
 
-export function isMod(modIds: number[], creator_id: number): boolean {
-  return modIds.includes(creator_id);
+export function canAdmin(
+  creatorId: number,
+  admins?: PersonViewSafe[],
+  myUserInfo = UserService.Instance.myUserInfo,
+  onSelf = false
+): boolean {
+  return canMod(creatorId, undefined, admins, myUserInfo, onSelf);
+}
+
+export function isMod(
+  creatorId: number,
+  mods?: CommunityModeratorView[]
+): boolean {
+  return mods?.map(m => m.moderator.id).includes(creatorId) ?? false;
+}
+
+export function amMod(
+  mods?: CommunityModeratorView[],
+  myUserInfo = UserService.Instance.myUserInfo
+): boolean {
+  return myUserInfo ? isMod(myUserInfo.local_user_view.person.id, mods) : false;
+}
+
+export function isAdmin(creatorId: number, admins?: PersonViewSafe[]): boolean {
+  return admins?.map(a => a.person.id).includes(creatorId) ?? false;
+}
+
+export function amAdmin(myUserInfo = UserService.Instance.myUserInfo): boolean {
+  return myUserInfo?.local_user_view.person.admin ?? false;
+}
+
+export function amCommunityCreator(
+  creator_id: number,
+  mods?: CommunityModeratorView[],
+  myUserInfo = UserService.Instance.myUserInfo
+): boolean {
+  let myId = myUserInfo?.local_user_view.person.id;
+  // Don't allow mod actions on yourself
+  return myId == mods?.at(0)?.moderator.id && myId != creator_id;
+}
+
+export function amSiteCreator(
+  creator_id: number,
+  admins?: PersonViewSafe[],
+  myUserInfo = UserService.Instance.myUserInfo
+): boolean {
+  let myId = myUserInfo?.local_user_view.person.id;
+  return myId == admins?.at(0)?.person.id && myId != creator_id;
+}
+
+export function amTopMod(
+  mods: CommunityModeratorView[],
+  myUserInfo = UserService.Instance.myUserInfo
+): boolean {
+  return mods.at(0)?.moderator.id == myUserInfo?.local_user_view.person.id;
 }
 
 const imageRegex = /(http)?s?:?(\/\/[^"']*\.(?:jpg|jpeg|gif|png|svg|webp))/;
@@ -323,9 +387,7 @@ export function routeSearchTypeToEnum(type: string): SearchType {
 }
 
 export async function getSiteMetadata(url: string) {
-  let form: GetSiteMetadata = {
-    url,
-  };
+  let form: GetSiteMetadata = { url };
   let client = new LemmyHttp(httpBase);
   return client.getSiteMetadata(form);
 }
@@ -371,13 +433,12 @@ export function debounce(func: any, wait = 1000, immediate = false) {
   };
 }
 
-export function getLanguages(override?: string): string[] {
-  let myUserInfo = UserService.Instance.myUserInfo;
-  let lang =
-    override ||
-    (myUserInfo?.local_user_view.local_user.lang
-      ? myUserInfo.local_user_view.local_user.lang
-      : "browser");
+export function getLanguages(
+  override?: string,
+  myUserInfo = UserService.Instance.myUserInfo
+): string[] {
+  let myLang = myUserInfo?.local_user_view.local_user.interface_language;
+  let lang = override || myLang || "browser";
 
   if (lang == "browser" && isBrowser()) {
     return getBrowserLanguages();
@@ -432,7 +493,7 @@ export async function setTheme(theme: string, forceReload = false) {
   let cssLoc = `/css/themes/${theme}.css`;
 
   loadCss(theme, cssLoc);
-  document.getElementById(theme).removeAttribute("disabled");
+  document.getElementById(theme)?.removeAttribute("disabled");
 }
 
 export function loadCss(id: string, loc: string) {
@@ -456,24 +517,22 @@ export function objectFlip(obj: any) {
   return ret;
 }
 
-export function showAvatars(): boolean {
-  return (
-    UserService.Instance.myUserInfo?.local_user_view.local_user.show_avatars ||
-    !UserService.Instance.myUserInfo
-  );
+export function showAvatars(
+  myUserInfo = UserService.Instance.myUserInfo
+): boolean {
+  return myUserInfo?.local_user_view.local_user.show_avatars ?? true;
 }
 
-export function showScores(): boolean {
-  return (
-    UserService.Instance.myUserInfo?.local_user_view.local_user.show_scores ||
-    !UserService.Instance.myUserInfo
-  );
+export function showScores(
+  myUserInfo = UserService.Instance.myUserInfo
+): boolean {
+  return myUserInfo?.local_user_view.local_user.show_scores ?? true;
 }
 
 export function isCakeDay(published: string): boolean {
   // moment(undefined) or moment.utc(undefined) returns the current date/time
   // moment(null) or moment.utc(null) returns null
-  const createDate = moment.utc(published || null).local();
+  const createDate = moment.utc(published).local();
   const currentDate = moment(new Date());
 
   return (
@@ -498,6 +557,7 @@ export function toast(text: string, background = "success") {
 export function pictrsDeleteToast(
   clickToDeleteText: string,
   deletePictureText: string,
+  failedDeletePictureText: string,
   deleteUrl: string
 ) {
   if (isBrowser()) {
@@ -510,13 +570,19 @@ export function pictrsDeleteToast(
       duration: 10000,
       onClick: () => {
         if (toast) {
-          window.location.replace(deleteUrl);
-          alert(deletePictureText);
-          toast.hideToast();
+          fetch(deleteUrl).then(res => {
+            toast.hideToast();
+            if (res.ok === true) {
+              alert(deletePictureText);
+            } else {
+              alert(failedDeletePictureText);
+            }
+          });
         }
       },
       close: true,
-    }).showToast();
+    });
+    toast.showToast();
   }
 }
 
@@ -524,7 +590,7 @@ interface NotifyInfo {
   name: string;
   icon?: string;
   link: string;
-  body: string;
+  body?: string;
 }
 
 export function messageToastify(info: NotifyInfo, router: any) {
@@ -534,7 +600,7 @@ export function messageToastify(info: NotifyInfo, router: any) {
 
     let toast = Toastify({
       text: `${htmlBody}<br />${info.name}`,
-      avatar: info.icon ? info.icon : null,
+      avatar: info.icon,
       backgroundColor: backgroundColor,
       className: "text-dark",
       close: true,
@@ -548,7 +614,8 @@ export function messageToastify(info: NotifyInfo, router: any) {
           router.history.push(info.link);
         }
       },
-    }).showToast();
+    });
+    toast.showToast();
   }
 }
 
@@ -566,7 +633,7 @@ export function notifyComment(comment_view: CommentView, router: any) {
   let info: NotifyInfo = {
     name: comment_view.creator.name,
     icon: comment_view.creator.avatar,
-    link: `/post/${comment_view.post.id}/comment/${comment_view.comment.id}`,
+    link: `/comment/${comment_view.comment.id}`,
     body: comment_view.comment.content,
   };
   notify(info, router);
@@ -585,21 +652,18 @@ export function notifyPrivateMessage(pmv: PrivateMessageView, router: any) {
 function notify(info: NotifyInfo, router: any) {
   messageToastify(info, router);
 
-  // TODO absolute nightmare bug, but notifs are currently broken.
-  // Notification.new will try to do a browser fetch ???
+  if (Notification.permission !== "granted") Notification.requestPermission();
+  else {
+    var notification = new Notification(info.name, {
+      ...{ body: info.body },
+      ...(info.icon && { icon: info.icon }),
+    });
 
-  // if (Notification.permission !== "granted") Notification.requestPermission();
-  // else {
-  //   var notification = new Notification(info.name, {
-  //     icon: info.icon,
-  //     body: info.body,
-  //   });
-
-  //   notification.onclick = (ev: Event): any => {
-  //     ev.preventDefault();
-  //     router.history.push(info.link);
-  //   };
-  // }
+    notification.onclick = (ev: Event): any => {
+      ev.preventDefault();
+      router.history.push(info.link);
+    };
+  }
 }
 
 export function setupTribute() {
@@ -716,15 +780,14 @@ async function communitySearch(text: string): Promise<CommunityTribute[]> {
 
 export function getListingTypeFromProps(
   props: any,
-  defaultListingType: ListingType
+  defaultListingType: ListingType,
+  myUserInfo = UserService.Instance.myUserInfo
 ): ListingType {
+  let myLt = myUserInfo?.local_user_view.local_user.default_listing_type;
   return props.match.params.listing_type
     ? routeListingTypeToEnum(props.match.params.listing_type)
-    : UserService.Instance.myUserInfo
-    ? Object.values(ListingType)[
-        UserService.Instance.myUserInfo.local_user_view.local_user
-          .default_listing_type
-      ]
+    : myLt
+    ? Object.values(ListingType)[myLt]
     : defaultListingType;
 }
 
@@ -734,21 +797,21 @@ export function getListingTypeFromPropsNoDefault(props: any): ListingType {
     : ListingType.Local;
 }
 
-// TODO might need to add a user setting for this too
 export function getDataTypeFromProps(props: any): DataType {
   return props.match.params.data_type
     ? routeDataTypeToEnum(props.match.params.data_type)
     : DataType.Post;
 }
 
-export function getSortTypeFromProps(props: any): SortType {
+export function getSortTypeFromProps(
+  props: any,
+  myUserInfo = UserService.Instance.myUserInfo
+): SortType {
+  let mySortType = myUserInfo?.local_user_view.local_user.default_sort_type;
   return props.match.params.sort
     ? routeSortTypeToEnum(props.match.params.sort)
-    : UserService.Instance.myUserInfo
-    ? Object.values(SortType)[
-        UserService.Instance.myUserInfo.local_user_view.local_user
-          .default_sort_type
-      ]
+    : mySortType
+    ? Object.values(SortType)[mySortType]
     : SortType.Active;
 }
 
@@ -762,22 +825,25 @@ export function getRecipientIdFromProps(props: any): number {
     : 1;
 }
 
-export function getIdFromProps(props: any): number {
-  return Number(props.match.params.id);
+export function getIdFromProps(props: any): number | undefined {
+  let id = props.match.params.post_id;
+  return id ? Number(id) : undefined;
 }
 
-export function getCommentIdFromProps(props: any): number {
-  return Number(props.match.params.comment_id);
+export function getCommentIdFromProps(props: any): number | undefined {
+  let id = props.match.params.comment_id;
+  return id ? Number(id) : undefined;
 }
 
 export function getUsernameFromProps(props: any): string {
   return props.match.params.username;
 }
 
-export function editCommentRes(data: CommentView, comments: CommentView[]) {
-  let found = comments.find(c => c.comment.id == data.comment.id);
+export function editCommentRes(data: CommentView, comments?: CommentView[]) {
+  let found = comments?.find(c => c.comment.id == data.comment.id);
   if (found) {
     found.comment.content = data.comment.content;
+    found.comment.distinguished = data.comment.distinguished;
     found.comment.updated = data.comment.updated;
     found.comment.removed = data.comment.removed;
     found.comment.deleted = data.comment.deleted;
@@ -787,56 +853,60 @@ export function editCommentRes(data: CommentView, comments: CommentView[]) {
   }
 }
 
-export function saveCommentRes(data: CommentView, comments: CommentView[]) {
-  let found = comments.find(c => c.comment.id == data.comment.id);
+export function saveCommentRes(data: CommentView, comments?: CommentView[]) {
+  let found = comments?.find(c => c.comment.id == data.comment.id);
   if (found) {
     found.saved = data.saved;
   }
 }
 
 export function updatePersonBlock(
-  data: BlockPersonResponse
-): PersonBlockView[] {
-  if (data.blocked) {
-    UserService.Instance.myUserInfo.person_blocks.push({
-      person: UserService.Instance.myUserInfo.local_user_view.person,
-      target: data.person_view.person,
-    });
-    toast(`${i18n.t("blocked")} ${data.person_view.person.name}`);
-  } else {
-    UserService.Instance.myUserInfo.person_blocks =
-      UserService.Instance.myUserInfo.person_blocks.filter(
+  data: BlockPersonResponse,
+  myUserInfo = UserService.Instance.myUserInfo
+) {
+  let mui = myUserInfo;
+  if (mui) {
+    if (data.blocked) {
+      mui.person_blocks.push({
+        person: mui.local_user_view.person,
+        target: data.person_view.person,
+      });
+      toast(`${i18n.t("blocked")} ${data.person_view.person.name}`);
+    } else {
+      mui.person_blocks = mui.person_blocks.filter(
         i => i.target.id != data.person_view.person.id
       );
-    toast(`${i18n.t("unblocked")} ${data.person_view.person.name}`);
+      toast(`${i18n.t("unblocked")} ${data.person_view.person.name}`);
+    }
   }
-  return UserService.Instance.myUserInfo.person_blocks;
 }
 
 export function updateCommunityBlock(
-  data: BlockCommunityResponse
-): CommunityBlockView[] {
-  if (data.blocked) {
-    UserService.Instance.myUserInfo.community_blocks.push({
-      person: UserService.Instance.myUserInfo.local_user_view.person,
-      community: data.community_view.community,
-    });
-    toast(`${i18n.t("blocked")} ${data.community_view.community.name}`);
-  } else {
-    UserService.Instance.myUserInfo.community_blocks =
-      UserService.Instance.myUserInfo.community_blocks.filter(
+  data: BlockCommunityResponse,
+  myUserInfo = UserService.Instance.myUserInfo
+) {
+  let mui = myUserInfo;
+  if (mui) {
+    if (data.blocked) {
+      mui.community_blocks.push({
+        person: mui.local_user_view.person,
+        community: data.community_view.community,
+      });
+      toast(`${i18n.t("blocked")} ${data.community_view.community.name}`);
+    } else {
+      mui.community_blocks = mui.community_blocks.filter(
         i => i.community.id != data.community_view.community.id
       );
-    toast(`${i18n.t("unblocked")} ${data.community_view.community.name}`);
+      toast(`${i18n.t("unblocked")} ${data.community_view.community.name}`);
+    }
   }
-  return UserService.Instance.myUserInfo.community_blocks;
 }
 
 export function createCommentLikeRes(
   data: CommentView,
-  comments: CommentView[]
+  comments?: CommentView[]
 ) {
-  let found = comments.find(c => c.comment.id === data.comment.id);
+  let found = comments?.find(c => c.comment.id === data.comment.id);
   if (found) {
     found.counts.score = data.counts.score;
     found.counts.upvotes = data.counts.upvotes;
@@ -847,14 +917,14 @@ export function createCommentLikeRes(
   }
 }
 
-export function createPostLikeFindRes(data: PostView, posts: PostView[]) {
-  let found = posts.find(p => p.post.id == data.post.id);
+export function createPostLikeFindRes(data: PostView, posts?: PostView[]) {
+  let found = posts?.find(p => p.post.id == data.post.id);
   if (found) {
     createPostLikeRes(data, found);
   }
 }
 
-export function createPostLikeRes(data: PostView, post_view: PostView) {
+export function createPostLikeRes(data: PostView, post_view?: PostView) {
   if (post_view) {
     post_view.counts.score = data.counts.score;
     post_view.counts.upvotes = data.counts.upvotes;
@@ -865,8 +935,8 @@ export function createPostLikeRes(data: PostView, post_view: PostView) {
   }
 }
 
-export function editPostFindRes(data: PostView, posts: PostView[]) {
-  let found = posts.find(p => p.post.id == data.post.id);
+export function editPostFindRes(data: PostView, posts?: PostView[]) {
+  let found = posts?.find(p => p.post.id == data.post.id);
   if (found) {
     editPostRes(data, found);
   }
@@ -879,18 +949,20 @@ export function editPostRes(data: PostView, post: PostView) {
     post.post.nsfw = data.post.nsfw;
     post.post.deleted = data.post.deleted;
     post.post.removed = data.post.removed;
-    post.post.stickied = data.post.stickied;
+    post.post.featured_community = data.post.featured_community;
+    post.post.featured_local = data.post.featured_local;
     post.post.body = data.post.body;
     post.post.locked = data.post.locked;
     post.saved = data.saved;
   }
 }
 
+// TODO possible to make these generic?
 export function updatePostReportRes(
   data: PostReportView,
-  reports: PostReportView[]
+  reports?: PostReportView[]
 ) {
-  let found = reports.find(p => p.post_report.id == data.post_report.id);
+  let found = reports?.find(p => p.post_report.id == data.post_report.id);
   if (found) {
     found.post_report = data.post_report;
   }
@@ -898,19 +970,31 @@ export function updatePostReportRes(
 
 export function updateCommentReportRes(
   data: CommentReportView,
-  reports: CommentReportView[]
+  reports?: CommentReportView[]
 ) {
-  let found = reports.find(c => c.comment_report.id == data.comment_report.id);
+  let found = reports?.find(c => c.comment_report.id == data.comment_report.id);
   if (found) {
     found.comment_report = data.comment_report;
   }
 }
 
+export function updatePrivateMessageReportRes(
+  data: PrivateMessageReportView,
+  reports?: PrivateMessageReportView[]
+) {
+  let found = reports?.find(
+    c => c.private_message_report.id == data.private_message_report.id
+  );
+  if (found) {
+    found.private_message_report = data.private_message_report;
+  }
+}
+
 export function updateRegistrationApplicationRes(
   data: RegistrationApplicationView,
-  applications: RegistrationApplicationView[]
+  applications?: RegistrationApplicationView[]
 ) {
-  let found = applications.find(
+  let found = applications?.find(
     ra => ra.registration_application.id == data.registration_application.id
   );
   if (found) {
@@ -923,60 +1007,12 @@ export function updateRegistrationApplicationRes(
 export function commentsToFlatNodes(comments: CommentView[]): CommentNodeI[] {
   let nodes: CommentNodeI[] = [];
   for (let comment of comments) {
-    nodes.push({ comment_view: comment });
+    nodes.push({ comment_view: comment, children: [], depth: 0 });
   }
   return nodes;
 }
 
-function commentSort(tree: CommentNodeI[], sort: CommentSortType) {
-  // First, put removed and deleted comments at the bottom, then do your other sorts
-  if (sort == CommentSortType.Top) {
-    tree.sort(
-      (a, b) =>
-        +a.comment_view.comment.removed - +b.comment_view.comment.removed ||
-        +a.comment_view.comment.deleted - +b.comment_view.comment.deleted ||
-        b.comment_view.counts.score - a.comment_view.counts.score
-    );
-  } else if (sort == CommentSortType.New) {
-    tree.sort(
-      (a, b) =>
-        +a.comment_view.comment.removed - +b.comment_view.comment.removed ||
-        +a.comment_view.comment.deleted - +b.comment_view.comment.deleted ||
-        b.comment_view.comment.published.localeCompare(
-          a.comment_view.comment.published
-        )
-    );
-  } else if (sort == CommentSortType.Old) {
-    tree.sort(
-      (a, b) =>
-        +a.comment_view.comment.removed - +b.comment_view.comment.removed ||
-        +a.comment_view.comment.deleted - +b.comment_view.comment.deleted ||
-        a.comment_view.comment.published.localeCompare(
-          b.comment_view.comment.published
-        )
-    );
-  } else if (sort == CommentSortType.Hot) {
-    tree.sort(
-      (a, b) =>
-        +a.comment_view.comment.removed - +b.comment_view.comment.removed ||
-        +a.comment_view.comment.deleted - +b.comment_view.comment.deleted ||
-        hotRankComment(b.comment_view) - hotRankComment(a.comment_view)
-    );
-  }
-
-  // Go through the children recursively
-  for (let node of tree) {
-    if (node.children) {
-      commentSort(node.children, sort);
-    }
-  }
-}
-
-export function commentSortSortType(tree: CommentNodeI[], sort: SortType) {
-  commentSort(tree, convertCommentSortType(sort));
-}
-
-function convertCommentSortType(sort: SortType): CommentSortType {
+export function convertCommentSortType(sort: SortType): CommentSortType {
   if (
     sort == SortType.TopAll ||
     sort == SortType.TopDay ||
@@ -996,46 +1032,75 @@ function convertCommentSortType(sort: SortType): CommentSortType {
 
 export function buildCommentsTree(
   comments: CommentView[],
-  commentSortType: CommentSortType
+  parentComment: boolean
 ): CommentNodeI[] {
   let map = new Map<number, CommentNodeI>();
+  let depthOffset = !parentComment
+    ? 0
+    : getDepthFromComment(comments[0].comment) ?? 0;
+
   for (let comment_view of comments) {
+    let depthI = getDepthFromComment(comment_view.comment) ?? 0;
+    let depth = depthI ? depthI - depthOffset : 0;
     let node: CommentNodeI = {
-      comment_view: comment_view,
+      comment_view,
       children: [],
+      depth,
     };
     map.set(comment_view.comment.id, { ...node });
   }
-  let tree: CommentNodeI[] = [];
-  for (let comment_view of comments) {
-    let child = map.get(comment_view.comment.id);
-    let parent_id = comment_view.comment.parent_id;
-    if (parent_id) {
-      let parent = map.get(parent_id);
-      // Necessary because blocked comment might not exist
-      if (parent) {
-        parent.children.push(child);
-      }
-    } else {
-      tree.push(child);
-    }
 
-    setDepth(child);
+  let tree: CommentNodeI[] = [];
+
+  // if its a parent comment fetch, then push the first comment to the top node.
+  if (parentComment) {
+    let cNode = map.get(comments[0].comment.id);
+    if (cNode) {
+      tree.push(cNode);
+    }
   }
 
-  commentSort(tree, commentSortType);
+  for (let comment_view of comments) {
+    let child = map.get(comment_view.comment.id);
+    if (child) {
+      let parent_id = getCommentParentId(comment_view.comment);
+      if (parent_id) {
+        let parent = map.get(parent_id);
+        // Necessary because blocked comment might not exist
+        if (parent) {
+          parent.children.push(child);
+        }
+      } else {
+        if (!parentComment) {
+          tree.push(child);
+        }
+      }
+    }
+  }
 
   return tree;
 }
 
-function setDepth(node: CommentNodeI, i = 0) {
-  for (let child of node.children) {
-    child.depth = i;
-    setDepth(child, i + 1);
-  }
+export function getCommentParentId(comment?: CommentI): number | undefined {
+  let split = comment?.path.split(".");
+  // remove the 0
+  split?.shift();
+
+  return split && split.length > 1
+    ? Number(split.at(split.length - 2))
+    : undefined;
 }
 
-export function insertCommentIntoTree(tree: CommentNodeI[], cv: CommentView) {
+export function getDepthFromComment(comment?: CommentI): number | undefined {
+  let len = comment?.path.split(".").length;
+  return len ? len - 2 : undefined;
+}
+
+export function insertCommentIntoTree(
+  tree: CommentNodeI[],
+  cv: CommentView,
+  parentComment: boolean
+) {
   // Building a fake node to be used for later
   let node: CommentNodeI = {
     comment_view: cv,
@@ -1043,13 +1108,14 @@ export function insertCommentIntoTree(tree: CommentNodeI[], cv: CommentView) {
     depth: 0,
   };
 
-  if (cv.comment.parent_id) {
-    let parentComment = searchCommentTree(tree, cv.comment.parent_id);
-    if (parentComment) {
-      node.depth = parentComment.depth + 1;
-      parentComment.children.unshift(node);
+  let parentId = getCommentParentId(cv.comment);
+  if (parentId) {
+    let parent_comment = searchCommentTree(tree, parentId);
+    if (parent_comment) {
+      node.depth = parent_comment.depth + 1;
+      parent_comment.children.unshift(node);
     }
-  } else {
+  } else if (!parentComment) {
     tree.unshift(node);
   }
 }
@@ -1057,25 +1123,26 @@ export function insertCommentIntoTree(tree: CommentNodeI[], cv: CommentView) {
 export function searchCommentTree(
   tree: CommentNodeI[],
   id: number
-): CommentNodeI {
+): CommentNodeI | undefined {
   for (let node of tree) {
     if (node.comment_view.comment.id === id) {
       return node;
     }
 
     for (const child of node.children) {
-      const res = searchCommentTree([child], id);
+      let res = searchCommentTree([child], id);
 
       if (res) {
         return res;
       }
     }
   }
-  return null;
+  return undefined;
 }
 
 export const colorList: string[] = [
   hsl(0),
+  hsl(50),
   hsl(100),
   hsl(150),
   hsl(200),
@@ -1094,7 +1161,7 @@ export function hostname(url: string): string {
 
 export function validTitle(title?: string): boolean {
   // Initial title is null, minimum length is taken care of by textarea's minLength={3}
-  if (title === null || title.length < 3) return true;
+  if (!title || title.length < 3) return true;
 
   const regex = new RegExp(/.*\S.*/, "g");
 
@@ -1119,13 +1186,22 @@ export function isBrowser() {
 }
 
 export function setIsoData(context: any): IsoData {
-  let isoData: IsoData = isBrowser()
-    ? window.isoData
-    : context.router.staticContext;
-  return isoData;
+  // If its the browser, you need to deserialize the data from the window
+  if (isBrowser()) {
+    let json = window.isoData;
+    let routeData = json.routeData;
+    let site_res = json.site_res;
+
+    let isoData: IsoData = {
+      path: json.path,
+      site_res,
+      routeData,
+    };
+    return isoData;
+  } else return context.router.staticContext;
 }
 
-export function wsSubscribe(parseMessage: any): Subscription {
+export function wsSubscribe(parseMessage: any): Subscription | undefined {
   if (isBrowser()) {
     return WebSocketService.Instance.subject
       .pipe(retryWhen(errors => errors.pipe(delay(3000), take(10))))
@@ -1135,25 +1211,7 @@ export function wsSubscribe(parseMessage: any): Subscription {
         () => console.log("complete")
       );
   } else {
-    return null;
-  }
-}
-
-export function setOptionalAuth(obj: any, auth = UserService.Instance.auth) {
-  if (auth) {
-    obj.auth = auth;
-  }
-}
-
-export function authField(
-  throwErr = true,
-  auth = UserService.Instance.auth
-): string {
-  if (auth == null && throwErr) {
-    toast(i18n.t("not_logged_in"), "danger");
-    throw "Not logged in";
-  } else {
-    return auth;
+    return undefined;
   }
 }
 
@@ -1191,10 +1249,11 @@ export function restoreScrollPosition(context: any) {
 }
 
 export function showLocal(isoData: IsoData): boolean {
-  return isoData.site_res.federated_instances?.linked.length > 0;
+  let linked = isoData.site_res.federated_instances?.linked;
+  return linked ? linked.length > 0 : false;
 }
 
-interface ChoicesValue {
+export interface ChoicesValue {
   value: string;
   label: string;
 }
@@ -1223,7 +1282,7 @@ export async function fetchCommunities(q: string) {
     listing_type: ListingType.All,
     page: 1,
     limit: fetchLimit,
-    auth: authField(false),
+    auth: myAuth(false),
   };
   let client = new LemmyHttp(httpBase);
   return client.search(form);
@@ -1237,7 +1296,7 @@ export async function fetchUsers(q: string) {
     listing_type: ListingType.All,
     page: 1,
     limit: fetchLimit,
-    auth: authField(false),
+    auth: myAuth(false),
   };
   let client = new LemmyHttp(httpBase);
   return client.search(form);
@@ -1247,13 +1306,14 @@ export const choicesConfig = {
   shouldSort: false,
   searchResultLimit: fetchLimit,
   classNames: {
-    containerOuter: "choices",
-    containerInner: "choices__inner bg-secondary border-0",
+    containerOuter: "choices custom-select px-0",
+    containerInner:
+      "choices__inner bg-secondary border-0 py-0 modlog-choices-font-size",
     input: "form-control",
     inputCloned: "choices__input--cloned",
     list: "choices__list",
     listItems: "choices__list--multiple",
-    listSingle: "choices__list--single",
+    listSingle: "choices__list--single py-0",
     listDropdown: "choices__list--dropdown",
     item: "choices__item bg-secondary",
     itemSelectable: "choices__item--selectable",
@@ -1283,7 +1343,7 @@ export function communitySelectName(cv: CommunityView): string {
 }
 
 export function personSelectName(pvs: PersonViewSafe): string {
-  let pName = pvs.person.display_name || pvs.person.name;
+  let pName = pvs.person.display_name ?? pvs.person.name;
   return pvs.person.local ? pName : `${hostname(pvs.person.actor_id)}/${pName}`;
 }
 
@@ -1304,9 +1364,11 @@ export function numToSI(value: number): string {
 }
 
 export function isBanned(ps: PersonSafe): boolean {
+  let expires = ps.ban_expires;
   // Add Z to convert from UTC date
-  if (ps.ban_expires) {
-    if (ps.banned && new Date(ps.ban_expires + "Z") > new Date()) {
+  // TODO this check probably isn't necessary anymore
+  if (expires) {
+    if (ps.banned && new Date(expires + "Z") > new Date()) {
       return true;
     } else {
       return false;
@@ -1319,5 +1381,112 @@ export function isBanned(ps: PersonSafe): boolean {
 export function pushNotNull(array: any[], new_item?: any) {
   if (new_item) {
     array.push(...new_item);
+  }
+}
+
+export function myAuth(throwErr = true): string | undefined {
+  return UserService.Instance.auth(throwErr);
+}
+
+export function enableDownvotes(siteRes: GetSiteResponse): boolean {
+  return siteRes.site_view.local_site.enable_downvotes;
+}
+
+export function enableNsfw(siteRes: GetSiteResponse): boolean {
+  return siteRes.site_view.local_site.enable_nsfw;
+}
+
+export function postToCommentSortType(sort: SortType): CommentSortType {
+  if ([SortType.Active, SortType.Hot].includes(sort)) {
+    return CommentSortType.Hot;
+  } else if ([SortType.New, SortType.NewComments].includes(sort)) {
+    return CommentSortType.New;
+  } else if (sort == SortType.Old) {
+    return CommentSortType.Old;
+  } else {
+    return CommentSortType.Top;
+  }
+}
+
+export function myFirstDiscussionLanguageId(
+  allLanguages: Language[],
+  siteLanguages: number[],
+  myUserInfo = UserService.Instance.myUserInfo
+): number | undefined {
+  return selectableLanguages(
+    allLanguages,
+    siteLanguages,
+    false,
+    false,
+    myUserInfo
+  ).at(0)?.id;
+}
+
+export function canCreateCommunity(
+  siteRes: GetSiteResponse,
+  myUserInfo = UserService.Instance.myUserInfo
+): boolean {
+  let adminOnly = siteRes.site_view.local_site.community_creation_admin_only;
+  return !adminOnly || amAdmin(myUserInfo);
+}
+
+export function isPostBlocked(
+  pv: PostView,
+  myUserInfo = UserService.Instance.myUserInfo
+): boolean {
+  return (
+    (myUserInfo?.community_blocks
+      .map(c => c.community.id)
+      .includes(pv.community.id) ||
+      myUserInfo?.person_blocks
+        .map(p => p.target.id)
+        .includes(pv.creator.id)) ??
+    false
+  );
+}
+
+/// Checks to make sure you can view NSFW posts. Returns true if you can.
+export function nsfwCheck(
+  pv: PostView,
+  myUserInfo = UserService.Instance.myUserInfo
+): boolean {
+  let nsfw = pv.post.nsfw || pv.community.nsfw;
+  let myShowNsfw = myUserInfo?.local_user_view.local_user.show_nsfw ?? false;
+  return !nsfw || (nsfw && myShowNsfw);
+}
+
+export function getRandomFromList<T>(list?: T[]): T | undefined {
+  return list?.at(Math.floor(Math.random() * list.length));
+}
+
+/**
+ * This shows what language you can select
+ *
+ * Use showAll for the site form
+ * Use showSite for the profile and community forms
+ * Use false for both those to filter on your profile and site ones
+ */
+export function selectableLanguages(
+  allLanguages: Language[],
+  siteLanguages: number[],
+  showAll?: boolean,
+  showSite?: boolean,
+  myUserInfo = UserService.Instance.myUserInfo
+): Language[] {
+  let allLangIds = allLanguages.map(l => l.id);
+  let myLangs = myUserInfo?.discussion_languages ?? allLangIds;
+  myLangs = myLangs.length == 0 ? allLangIds : myLangs;
+  let siteLangs = siteLanguages.length == 0 ? allLangIds : siteLanguages;
+
+  if (showAll) {
+    return allLanguages;
+  } else {
+    if (showSite) {
+      return allLanguages.filter(x => siteLangs.includes(x.id));
+    } else {
+      return allLanguages
+        .filter(x => siteLangs.includes(x.id))
+        .filter(x => myLangs.includes(x.id));
+    }
   }
 }

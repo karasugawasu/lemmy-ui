@@ -1,14 +1,16 @@
 import { Component, linkEvent } from "inferno";
 import { T } from "inferno-i18next-dess";
 import {
+  CommentNode as CommentNodeI,
   CommentReportView,
   CommentView,
   ResolveCommentReport,
+  SubscribedType,
 } from "lemmy-js-client";
 import { i18n } from "../../i18next";
-import { CommentNode as CommentNodeI } from "../../interfaces";
+import { CommentViewType } from "../../interfaces";
 import { WebSocketService } from "../../services";
-import { authField, wsClient } from "../../utils";
+import { myAuth, wsClient } from "../../utils";
 import { Icon } from "../common/icon";
 import { PersonListing } from "../person/person-listing";
 import { CommentNode } from "./comment-node";
@@ -39,7 +41,7 @@ export class CommentReport extends Component<CommentReportProps, any> {
       community: r.community,
       creator_banned_from_community: r.creator_banned_from_community,
       counts: r.counts,
-      subscribed: false,
+      subscribed: SubscribedType.NotSubscribed,
       saved: false,
       creator_blocked: false,
       my_vote: r.my_vote,
@@ -47,17 +49,21 @@ export class CommentReport extends Component<CommentReportProps, any> {
 
     let node: CommentNodeI = {
       comment_view,
+      children: [],
+      depth: 0,
     };
 
     return (
       <div>
         <CommentNode
           node={node}
-          moderators={[]}
-          admins={[]}
+          viewType={CommentViewType.Flat}
           enableDownvotes={true}
           viewOnly={true}
           showCommunity={true}
+          allLanguages={[]}
+          siteLanguages={[]}
+          hideImages
         />
         <div>
           {i18n.t("reporter")}: <PersonListing person={r.creator} />
@@ -98,11 +104,14 @@ export class CommentReport extends Component<CommentReportProps, any> {
   }
 
   handleResolveReport(i: CommentReport) {
-    let form: ResolveCommentReport = {
-      report_id: i.props.report.comment_report.id,
-      resolved: !i.props.report.comment_report.resolved,
-      auth: authField(),
-    };
-    WebSocketService.Instance.send(wsClient.resolveCommentReport(form));
+    let auth = myAuth();
+    if (auth) {
+      let form: ResolveCommentReport = {
+        report_id: i.props.report.comment_report.id,
+        resolved: !i.props.report.comment_report.resolved,
+        auth,
+      };
+      WebSocketService.Instance.send(wsClient.resolveCommentReport(form));
+    }
   }
 }

@@ -10,7 +10,6 @@ import path from "path";
 import process from "process";
 import serialize from "serialize-javascript";
 import { App } from "../shared/components/app/app";
-import { SYMBOLS } from "../shared/components/common/symbols";
 import { httpBaseInternal } from "../shared/env";
 import {
   ILemmyConfig,
@@ -18,7 +17,7 @@ import {
   IsoData,
 } from "../shared/interfaces";
 import { routes } from "../shared/routes";
-import { initializeSite, setOptionalAuth } from "../shared/utils";
+import { initializeSite } from "../shared/utils";
 
 const server = express();
 const [hostname, port] = process.env["LEMMY_UI_HOST"]
@@ -27,11 +26,11 @@ const [hostname, port] = process.env["LEMMY_UI_HOST"]
 const extraThemesFolder =
   process.env["LEMMY_UI_EXTRA_THEMES_FOLDER"] || "./extra_themes";
 
-if (!process.env["LEMMY_UI_DISABLE_CSP"]) {
+if (!process.env["LEMMY_UI_DISABLE_CSP"] && !process.env["LEMMY_UI_DEBUG"]) {
   server.use(function (_req, res, next) {
     res.setHeader(
       "Content-Security-Policy",
-      `default-src 'none'; connect-src *; img-src * data:; script-src https://platform.twitter.com 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; form-action 'self'; base-uri 'self'; frame-src https://platform.twitter.com/ https://www.youtube.com https://fedimovie.com; manifest-src 'self'`
+      `default-src 'self'; connect-src *; img-src * data:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; form-action 'self'; base-uri 'self'; frame-src *`
     );
     next();
   });
@@ -113,12 +112,11 @@ server.get("/css/themelist", async (_req, res) => {
 // server.use(cookieParser());
 server.get("/*", async (req, res) => {
   try {
-    const activeRoute = routes.find(route => matchPath(req.path, route)) || {};
+    const activeRoute = routes.find(route => matchPath(req.path, route));
     const context = {} as any;
-    let auth: string = IsomorphicCookie.load("jwt", req);
+    let auth: string | undefined = IsomorphicCookie.load("jwt", req);
 
-    let getSiteForm: GetSite = {};
-    setOptionalAuth(getSiteForm, auth);
+    let getSiteForm: GetSite = { auth };
 
     let promises: Promise<any>[] = [];
 
@@ -138,8 +136,8 @@ server.get("/*", async (req, res) => {
       console.error(
         "Incorrect JWT token, skipping auth so frontend can remove jwt cookie"
       );
-      delete getSiteForm.auth;
-      delete initialFetchReq.auth;
+      getSiteForm.auth = undefined;
+      initialFetchReq.auth = undefined;
       try_site = await initialFetchReq.client.getSite(getSiteForm);
     }
     let site: GetSiteResponse = try_site;
@@ -148,7 +146,7 @@ server.get("/*", async (req, res) => {
     }
     initializeSite(site);
 
-    if (activeRoute.fetchInitialData) {
+    if (activeRoute?.fetchInitialData) {
       promises.push(...activeRoute.fetchInitialData(initialFetchReq));
     }
 
@@ -173,7 +171,7 @@ server.get("/*", async (req, res) => {
 
     const wrapper = (
       <StaticRouter location={req.url} context={isoData}>
-        <App siteRes={isoData.site_res} />
+        <App />
       </StaticRouter>
     );
     if (context.url) {
@@ -188,16 +186,15 @@ server.get("/*", async (req, res) => {
     );
     const erudaStr = process.env["LEMMY_UI_DEBUG"] ? renderToString(eruda) : "";
     const root = renderToString(wrapper);
-    const symbols = renderToString(SYMBOLS);
     const helmet = Helmet.renderStatic();
 
-    const config: ILemmyConfig = { wsHost: process.env.LEMMY_WS_HOST };
+    const config: ILemmyConfig = { wsHost: process.env.LEMMY_UI_LEMMY_WS_HOST };
 
     res.send(`
            <!DOCTYPE html>
            <html ${helmet.htmlAttributes.toString()} lang="en">
            <head>
-           <script>window.isoData = ${serialize(isoData)}</script>
+           <script>window.isoData = ${JSON.stringify(isoData)}</script>
            <script>window.lemmyConfig = ${serialize(config)}</script>
 
            <!-- A remote debugging utility for mobile -->
@@ -223,9 +220,6 @@ server.get("/*", async (req, res) => {
            <!-- Current theme and more -->
            ${helmet.link.toString()}
            
-           <!-- Icons -->
-           ${symbols}
-
            </head>
 
            <body ${helmet.bodyAttributes.toString()}>
@@ -253,14 +247,17 @@ server.listen(Number(port), hostname, () => {
 function setForwardedHeaders(headers: IncomingHttpHeaders): {
   [key: string]: string;
 } {
-  let out = {
-    host: headers.host,
-  };
-  if (headers["x-real-ip"]) {
-    out["x-real-ip"] = headers["x-real-ip"];
+  let out: { [key: string]: string } = {};
+  if (headers.host) {
+    out.host = headers.host;
   }
-  if (headers["x-forwarded-for"]) {
-    out["x-forwarded-for"] = headers["x-forwarded-for"];
+  let realIp = headers["x-real-ip"];
+  if (realIp) {
+    out["x-real-ip"] = realIp as string;
+  }
+  let forwardedFor = headers["x-forwarded-for"];
+  if (forwardedFor) {
+    out["x-forwarded-for"] = forwardedFor as string;
   }
 
   return out;

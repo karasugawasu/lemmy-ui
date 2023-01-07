@@ -11,8 +11,11 @@ import {
   GetPersonDetailsResponse,
   GetSiteResponse,
   PostResponse,
+  PurgeItemResponse,
   SortType,
   UserOperation,
+  wsJsonToRes,
+  wsUserOp,
 } from "lemmy-js-client";
 import moment from "moment";
 import { Subscription } from "rxjs";
@@ -20,19 +23,21 @@ import { i18n } from "../../i18next";
 import { InitialFetchRequest, PersonDetailsView } from "../../interfaces";
 import { UserService, WebSocketService } from "../../services";
 import {
-  authField,
   canMod,
   capitalizeFirstLetter,
   createCommentLikeRes,
   createPostLikeFindRes,
   editCommentRes,
   editPostFindRes,
+  enableDownvotes,
+  enableNsfw,
   fetchLimit,
   futureDaysToUnixTime,
   getUsernameFromProps,
+  isAdmin,
   isBanned,
-  isMod,
   mdToHtml,
+  myAuth,
   numToSI,
   relTags,
   restoreScrollPosition,
@@ -40,14 +45,11 @@ import {
   saveCommentRes,
   saveScrollPosition,
   setIsoData,
-  setOptionalAuth,
   setupTippy,
   toast,
   updatePersonBlock,
   wsClient,
-  wsJsonToRes,
   wsSubscribe,
-  wsUserOp,
 } from "../../utils";
 import { BannerIconHeader } from "../common/banner-icon-header";
 import { HtmlTags } from "../common/html-tags";
@@ -59,25 +61,25 @@ import { PersonDetails } from "./person-details";
 import { PersonListing } from "./person-listing";
 
 interface ProfileState {
-  personRes: GetPersonDetailsResponse;
+  personRes?: GetPersonDetailsResponse;
   userName: string;
   view: PersonDetailsView;
   sort: SortType;
   page: number;
   loading: boolean;
   personBlocked: boolean;
-  siteRes: GetSiteResponse;
+  banReason?: string;
+  banExpireDays?: number;
   showBanDialog: boolean;
-  banReason: string;
-  banExpireDays: number;
   removeData: boolean;
+  siteRes: GetSiteResponse;
 }
 
 interface ProfileProps {
   view: PersonDetailsView;
   sort: SortType;
   page: number;
-  person_id: number | null;
+  person_id?: number;
   username: string;
 }
 
@@ -89,9 +91,8 @@ interface UrlParams {
 
 export class Profile extends Component<any, ProfileState> {
   private isoData = setIsoData(this.context);
-  private subscription: Subscription;
-  private emptyState: ProfileState = {
-    personRes: undefined,
+  private subscription?: Subscription;
+  state: ProfileState = {
     userName: getUsernameFromProps(this.props),
     loading: true,
     view: Profile.getViewFromProps(this.props.match.view),
@@ -100,15 +101,12 @@ export class Profile extends Component<any, ProfileState> {
     personBlocked: false,
     siteRes: this.isoData.site_res,
     showBanDialog: false,
-    banReason: null,
-    banExpireDays: null,
     removeData: false,
   };
 
   constructor(props: any, context: any) {
     super(props, context);
 
-    this.state = this.emptyState;
     this.handleSortChange = this.handleSortChange.bind(this);
     this.handlePageChange = this.handlePageChange.bind(this);
 
@@ -117,13 +115,14 @@ export class Profile extends Component<any, ProfileState> {
 
     // Only fetch the data if coming from another route
     if (this.isoData.path == this.context.router.route.match.url) {
-      this.state.personRes = this.isoData.routeData[0];
-      this.state.loading = false;
+      this.state = {
+        ...this.state,
+        personRes: this.isoData.routeData[0] as GetPersonDetailsResponse,
+        loading: false,
+      };
     } else {
       this.fetchUserData();
     }
-
-    this.setPersonBlock();
   }
 
   fetchUserData() {
@@ -133,12 +132,12 @@ export class Profile extends Component<any, ProfileState> {
       saved_only: this.state.view === PersonDetailsView.Saved,
       page: this.state.page,
       limit: fetchLimit,
-      auth: authField(false),
+      auth: myAuth(false),
     };
     WebSocketService.Instance.send(wsClient.getPersonDetails(form));
   }
 
-  get isCurrentUser() {
+  get amCurrentUser() {
     return (
       UserService.Instance.myUserInfo?.local_user_view.person.id ==
       this.state.personRes?.person_view.person.id
@@ -146,9 +145,15 @@ export class Profile extends Component<any, ProfileState> {
   }
 
   setPersonBlock() {
-    this.state.personBlocked = UserService.Instance.myUserInfo?.person_blocks
-      .map(a => a.target.id)
-      .includes(this.state.personRes?.person_view.person.id);
+    let mui = UserService.Instance.myUserInfo;
+    let res = this.state.personRes;
+    if (mui && res) {
+      this.setState({
+        personBlocked: mui.person_blocks
+          .map(a => a.target.id)
+          .includes(res.person_view.person.id),
+      });
+    }
   }
 
   static getViewFromProps(view: string): PersonDetailsView {
@@ -165,7 +170,6 @@ export class Profile extends Component<any, ProfileState> {
 
   static fetchInitialData(req: InitialFetchRequest): Promise<any>[] {
     let pathSplit = req.path.split("/");
-    let promises: Promise<any>[] = [];
 
     let username = pathSplit[2];
     let view = this.getViewFromProps(pathSplit[4]);
@@ -173,23 +177,23 @@ export class Profile extends Component<any, ProfileState> {
     let page = this.getPageFromProps(Number(pathSplit[8]));
 
     let form: GetPersonDetails = {
+      username: username,
       sort,
       saved_only: view === PersonDetailsView.Saved,
       page,
       limit: fetchLimit,
-      username: username,
+      auth: req.auth,
     };
-    setOptionalAuth(form, req.auth);
-    promises.push(req.client.getPersonDetails(form));
-    return promises;
+    return [req.client.getPersonDetails(form)];
   }
 
   componentDidMount() {
+    this.setPersonBlock();
     setupTippy();
   }
 
   componentWillUnmount() {
-    this.subscription.unsubscribe();
+    this.subscription?.unsubscribe();
     saveScrollPosition(this.context);
   }
 
@@ -198,7 +202,7 @@ export class Profile extends Component<any, ProfileState> {
       view: this.getViewFromProps(props.match.params.view),
       sort: this.getSortTypeFromProps(props.match.params.sort),
       page: this.getPageFromProps(props.match.params.page),
-      person_id: Number(props.match.params.id) || null,
+      person_id: Number(props.match.params.id),
       username: props.match.params.username,
     };
   }
@@ -215,58 +219,58 @@ export class Profile extends Component<any, ProfileState> {
   }
 
   get documentTitle(): string {
-    return `@${this.state.personRes.person_view.person.name} - ${this.state.siteRes.site_view.site.name}`;
-  }
-
-  get bioTag(): string {
-    return this.state.personRes.person_view.person.bio
-      ? this.state.personRes.person_view.person.bio
-      : undefined;
+    let res = this.state.personRes;
+    return res
+      ? `@${res.person_view.person.name} - ${this.state.siteRes.site_view.site.name}`
+      : "";
   }
 
   render() {
+    let res = this.state.personRes;
     return (
-      <div class="container">
+      <div className="container-lg">
         {this.state.loading ? (
           <h5>
             <Spinner large />
           </h5>
         ) : (
-          <div class="row">
-            <div class="col-12 col-md-8">
-              <>
-                <HtmlTags
-                  title={this.documentTitle}
-                  path={this.context.router.route.match.url}
-                  description={this.bioTag}
-                  image={this.state.personRes.person_view.person.avatar}
+          res && (
+            <div className="row">
+              <div className="col-12 col-md-8">
+                <>
+                  <HtmlTags
+                    title={this.documentTitle}
+                    path={this.context.router.route.match.url}
+                    description={res.person_view.person.bio}
+                    image={res.person_view.person.avatar}
+                  />
+                  {this.userInfo()}
+                  <hr />
+                </>
+                {!this.state.loading && this.selects()}
+                <PersonDetails
+                  personRes={res}
+                  admins={this.state.siteRes.admins}
+                  sort={this.state.sort}
+                  page={this.state.page}
+                  limit={fetchLimit}
+                  enableDownvotes={enableDownvotes(this.state.siteRes)}
+                  enableNsfw={enableNsfw(this.state.siteRes)}
+                  view={this.state.view}
+                  onPageChange={this.handlePageChange}
+                  allLanguages={this.state.siteRes.all_languages}
+                  siteLanguages={this.state.siteRes.discussion_languages}
                 />
-                {this.userInfo()}
-                <hr />
-              </>
-              {!this.state.loading && this.selects()}
-              <PersonDetails
-                personRes={this.state.personRes}
-                admins={this.state.siteRes.admins}
-                sort={this.state.sort}
-                page={this.state.page}
-                limit={fetchLimit}
-                enableDownvotes={
-                  this.state.siteRes.site_view.site.enable_downvotes
-                }
-                enableNsfw={this.state.siteRes.site_view.site.enable_nsfw}
-                view={this.state.view}
-                onPageChange={this.handlePageChange}
-              />
-            </div>
-
-            {!this.state.loading && (
-              <div class="col-12 col-md-4">
-                {this.moderates()}
-                {this.isCurrentUser && this.follows()}
               </div>
-            )}
-          </div>
+
+              {!this.state.loading && (
+                <div className="col-12 col-md-4">
+                  {this.moderates()}
+                  {this.amCurrentUser && this.follows()}
+                </div>
+              )}
+            </div>
+          )
         )}
       </div>
     );
@@ -274,7 +278,7 @@ export class Profile extends Component<any, ProfileState> {
 
   viewRadios() {
     return (
-      <div class="btn-group btn-group-toggle flex-wrap mb-2">
+      <div className="btn-group btn-group-toggle flex-wrap mb-2">
         <label
           className={`btn btn-outline-secondary pointer
             ${this.state.view == PersonDetailsView.Overview && "active"}
@@ -336,7 +340,7 @@ export class Profile extends Component<any, ProfileState> {
 
     return (
       <div className="mb-2">
-        <span class="mr-3">{this.viewRadios()}</span>
+        <span className="mr-3">{this.viewRadios()}</span>
         <SortSelect
           sort={this.state.sort}
           onChange={this.handleSortChange}
@@ -351,286 +355,315 @@ export class Profile extends Component<any, ProfileState> {
     );
   }
   handleBlockPerson(personId: number) {
-    if (personId != 0) {
+    let auth = myAuth();
+    if (auth) {
+      if (personId != 0) {
+        let blockUserForm: BlockPerson = {
+          person_id: personId,
+          block: true,
+          auth,
+        };
+        WebSocketService.Instance.send(wsClient.blockPerson(blockUserForm));
+      }
+    }
+  }
+  handleUnblockPerson(recipientId: number) {
+    let auth = myAuth();
+    if (auth) {
       let blockUserForm: BlockPerson = {
-        person_id: personId,
-        block: true,
-        auth: authField(),
+        person_id: recipientId,
+        block: false,
+        auth,
       };
       WebSocketService.Instance.send(wsClient.blockPerson(blockUserForm));
     }
   }
-  handleUnblockPerson(recipientId: number) {
-    let blockUserForm: BlockPerson = {
-      person_id: recipientId,
-      block: false,
-      auth: authField(),
-    };
-    WebSocketService.Instance.send(wsClient.blockPerson(blockUserForm));
-  }
 
   userInfo() {
     let pv = this.state.personRes?.person_view;
-
     return (
-      <div>
-        <BannerIconHeader banner={pv.person.banner} icon={pv.person.avatar} />
-        <div class="mb-3">
-          <div class="">
-            <div class="mb-0 d-flex flex-wrap">
-              <div>
-                {pv.person.display_name && (
-                  <h5 class="mb-0">{pv.person.display_name}</h5>
+      pv && (
+        <div>
+          <BannerIconHeader banner={pv.person.banner} icon={pv.person.avatar} />
+          <div className="mb-3">
+            <div className="">
+              <div className="mb-0 d-flex flex-wrap">
+                <div>
+                  {pv.person.display_name && (
+                    <h5 className="mb-0">{pv.person.display_name}</h5>
+                  )}
+                  <ul className="list-inline mb-2">
+                    <li className="list-inline-item">
+                      <PersonListing
+                        person={pv.person}
+                        realLink
+                        useApubName
+                        muted
+                        hideAvatar
+                      />
+                    </li>
+                    {isBanned(pv.person) && (
+                      <li className="list-inline-item badge badge-danger">
+                        {i18n.t("banned")}
+                      </li>
+                    )}
+                    {pv.person.deleted && (
+                      <li className="list-inline-item badge badge-danger">
+                        {i18n.t("deleted")}
+                      </li>
+                    )}
+                    {pv.person.admin && (
+                      <li className="list-inline-item badge badge-light">
+                        {i18n.t("admin")}
+                      </li>
+                    )}
+                    {pv.person.bot_account && (
+                      <li className="list-inline-item badge badge-light">
+                        {i18n.t("bot_account").toLowerCase()}
+                      </li>
+                    )}
+                  </ul>
+                </div>
+                {this.banDialog()}
+                <div className="flex-grow-1 unselectable pointer mx-2"></div>
+                {!this.amCurrentUser && UserService.Instance.myUserInfo && (
+                  <>
+                    <a
+                      className={`d-flex align-self-start btn btn-secondary mr-2 ${
+                        !pv.person.matrix_user_id && "invisible"
+                      }`}
+                      rel={relTags}
+                      href={`https://matrix.to/#/${pv.person.matrix_user_id}`}
+                    >
+                      {i18n.t("send_secure_message")}
+                    </a>
+                    <Link
+                      className={
+                        "d-flex align-self-start btn btn-secondary mr-2"
+                      }
+                      to={`/create_private_message/recipient/${pv.person.id}`}
+                    >
+                      {i18n.t("send_message")}
+                    </Link>
+                    {this.state.personBlocked ? (
+                      <button
+                        className={
+                          "d-flex align-self-start btn btn-secondary mr-2"
+                        }
+                        onClick={linkEvent(
+                          pv.person.id,
+                          this.handleUnblockPerson
+                        )}
+                      >
+                        {i18n.t("unblock_user")}
+                      </button>
+                    ) : (
+                      <button
+                        className={
+                          "d-flex align-self-start btn btn-secondary mr-2"
+                        }
+                        onClick={linkEvent(
+                          pv.person.id,
+                          this.handleBlockPerson
+                        )}
+                      >
+                        {i18n.t("block_user")}
+                      </button>
+                    )}
+                  </>
                 )}
-                <ul class="list-inline mb-2">
-                  <li className="list-inline-item">
-                    <PersonListing
-                      person={pv.person}
-                      realLink
-                      useApubName
-                      muted
-                      hideAvatar
-                    />
-                  </li>
-                  {isBanned(pv.person) && (
-                    <li className="list-inline-item badge badge-danger">
-                      {i18n.t("banned")}
-                    </li>
-                  )}
-                  {pv.person.admin && (
-                    <li className="list-inline-item badge badge-light">
-                      {i18n.t("admin")}
-                    </li>
-                  )}
-                  {pv.person.bot_account && (
-                    <li className="list-inline-item badge badge-light">
-                      {i18n.t("bot_account").toLowerCase()}
-                    </li>
-                  )}
-                </ul>
-              </div>
-              {this.banDialog()}
-              <div className="flex-grow-1 unselectable pointer mx-2"></div>
-              {!this.isCurrentUser && UserService.Instance.myUserInfo && (
-                <>
-                  <a
-                    className={`d-flex align-self-start btn btn-secondary mr-2 ${
-                      !pv.person.matrix_user_id && "invisible"
-                    }`}
-                    rel={relTags}
-                    href={`https://matrix.to/#/${pv.person.matrix_user_id}`}
-                  >
-                    {i18n.t("send_secure_message")}
-                  </a>
-                  <Link
-                    className={"d-flex align-self-start btn btn-secondary mr-2"}
-                    to={`/create_private_message/recipient/${pv.person.id}`}
-                  >
-                    {i18n.t("send_message")}
-                  </Link>
-                  {this.state.personBlocked ? (
+
+                {canMod(pv.person.id, undefined, this.state.siteRes.admins) &&
+                  !isAdmin(pv.person.id, this.state.siteRes.admins) &&
+                  !this.state.showBanDialog &&
+                  (!isBanned(pv.person) ? (
                     <button
                       className={
                         "d-flex align-self-start btn btn-secondary mr-2"
                       }
-                      onClick={linkEvent(
-                        pv.person.id,
-                        this.handleUnblockPerson
-                      )}
+                      onClick={linkEvent(this, this.handleModBanShow)}
+                      aria-label={i18n.t("ban")}
                     >
-                      {i18n.t("unblock_user")}
+                      {capitalizeFirstLetter(i18n.t("ban"))}
                     </button>
                   ) : (
                     <button
                       className={
                         "d-flex align-self-start btn btn-secondary mr-2"
                       }
-                      onClick={linkEvent(pv.person.id, this.handleBlockPerson)}
+                      onClick={linkEvent(this, this.handleModBanSubmit)}
+                      aria-label={i18n.t("unban")}
                     >
-                      {i18n.t("block_user")}
+                      {capitalizeFirstLetter(i18n.t("unban"))}
                     </button>
-                  )}
-                </>
+                  ))}
+              </div>
+              {pv.person.bio && (
+                <div className="d-flex align-items-center mb-2">
+                  <div
+                    className="md-div"
+                    dangerouslySetInnerHTML={mdToHtml(pv.person.bio)}
+                  />
+                </div>
               )}
-
-              {this.canAdmin &&
-                !this.personIsAdmin &&
-                !this.state.showBanDialog &&
-                (!isBanned(pv.person) ? (
-                  <button
-                    className={"d-flex align-self-start btn btn-secondary mr-2"}
-                    onClick={linkEvent(this, this.handleModBanShow)}
-                    aria-label={i18n.t("ban")}
-                  >
-                    {capitalizeFirstLetter(i18n.t("ban"))}
-                  </button>
-                ) : (
-                  <button
-                    className={"d-flex align-self-start btn btn-secondary mr-2"}
-                    onClick={linkEvent(this, this.handleModBanSubmit)}
-                    aria-label={i18n.t("unban")}
-                  >
-                    {capitalizeFirstLetter(i18n.t("unban"))}
-                  </button>
-                ))}
-            </div>
-            {pv.person.bio && (
-              <div className="d-flex align-items-center mb-2">
-                <div
-                  className="md-div"
-                  dangerouslySetInnerHTML={mdToHtml(pv.person.bio)}
+              <div>
+                <ul className="list-inline mb-2">
+                  <li className="list-inline-item badge badge-light">
+                    {i18n.t("number_of_posts", {
+                      count: pv.counts.post_count,
+                      formattedCount: numToSI(pv.counts.post_count),
+                    })}
+                  </li>
+                  <li className="list-inline-item badge badge-light">
+                    {i18n.t("number_of_comments", {
+                      count: pv.counts.comment_count,
+                      formattedCount: numToSI(pv.counts.comment_count),
+                    })}
+                  </li>
+                </ul>
+              </div>
+              <div className="text-muted">
+                {i18n.t("joined")}{" "}
+                <MomentTime
+                  published={pv.person.published}
+                  showAgo
+                  ignoreUpdated
                 />
               </div>
-            )}
-            <div>
-              <ul class="list-inline mb-2">
-                <li className="list-inline-item badge badge-light">
-                  {i18n.t("number_of_posts", {
-                    count: pv.counts.post_count,
-                    formattedCount: numToSI(pv.counts.post_count),
-                  })}
-                </li>
-                <li className="list-inline-item badge badge-light">
-                  {i18n.t("number_of_comments", {
-                    count: pv.counts.comment_count,
-                    formattedCount: numToSI(pv.counts.comment_count),
-                  })}
-                </li>
-              </ul>
-            </div>
-            <div class="text-muted">
-              {i18n.t("joined")}{" "}
-              <MomentTime data={pv.person} showAgo ignoreUpdated />
-            </div>
-            <div className="d-flex align-items-center text-muted mb-2">
-              <Icon icon="cake" />
-              <span className="ml-2">
-                {i18n.t("cake_day_title")}{" "}
-                {moment.utc(pv.person.published).local().format("MMM DD, YYYY")}
-              </span>
+              <div className="d-flex align-items-center text-muted mb-2">
+                <Icon icon="cake" />
+                <span className="ml-2">
+                  {i18n.t("cake_day_title")}{" "}
+                  {moment
+                    .utc(pv.person.published)
+                    .local()
+                    .format("MMM DD, YYYY")}
+                </span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )
     );
   }
 
   banDialog() {
     let pv = this.state.personRes?.person_view;
     return (
-      <>
-        {this.state.showBanDialog && (
-          <form onSubmit={linkEvent(this, this.handleModBanSubmit)}>
-            <div class="form-group row col-12">
-              <label class="col-form-label" htmlFor="profile-ban-reason">
-                {i18n.t("reason")}
-              </label>
-              <input
-                type="text"
-                id="profile-ban-reason"
-                class="form-control mr-2"
-                placeholder={i18n.t("reason")}
-                value={this.state.banReason}
-                onInput={linkEvent(this, this.handleModBanReasonChange)}
-              />
-              <label class="col-form-label" htmlFor={`mod-ban-expires`}>
-                {i18n.t("expires")}
-              </label>
-              <input
-                type="number"
-                id={`mod-ban-expires`}
-                class="form-control mr-2"
-                placeholder={i18n.t("number_of_days")}
-                value={this.state.banExpireDays}
-                onInput={linkEvent(this, this.handleModBanExpireDaysChange)}
-              />
-              <div class="form-group">
-                <div class="form-check">
-                  <input
-                    class="form-check-input"
-                    id="mod-ban-remove-data"
-                    type="checkbox"
-                    checked={this.state.removeData}
-                    onChange={linkEvent(this, this.handleModRemoveDataChange)}
-                  />
-                  <label
-                    class="form-check-label"
-                    htmlFor="mod-ban-remove-data"
-                    title={i18n.t("remove_content_more")}
-                  >
-                    {i18n.t("remove_content")}
-                  </label>
+      pv && (
+        <>
+          {this.state.showBanDialog && (
+            <form onSubmit={linkEvent(this, this.handleModBanSubmit)}>
+              <div className="form-group row col-12">
+                <label className="col-form-label" htmlFor="profile-ban-reason">
+                  {i18n.t("reason")}
+                </label>
+                <input
+                  type="text"
+                  id="profile-ban-reason"
+                  className="form-control mr-2"
+                  placeholder={i18n.t("reason")}
+                  value={this.state.banReason}
+                  onInput={linkEvent(this, this.handleModBanReasonChange)}
+                />
+                <label className="col-form-label" htmlFor={`mod-ban-expires`}>
+                  {i18n.t("expires")}
+                </label>
+                <input
+                  type="number"
+                  id={`mod-ban-expires`}
+                  className="form-control mr-2"
+                  placeholder={i18n.t("number_of_days")}
+                  value={this.state.banExpireDays}
+                  onInput={linkEvent(this, this.handleModBanExpireDaysChange)}
+                />
+                <div className="form-group">
+                  <div className="form-check">
+                    <input
+                      className="form-check-input"
+                      id="mod-ban-remove-data"
+                      type="checkbox"
+                      checked={this.state.removeData}
+                      onChange={linkEvent(this, this.handleModRemoveDataChange)}
+                    />
+                    <label
+                      className="form-check-label"
+                      htmlFor="mod-ban-remove-data"
+                      title={i18n.t("remove_content_more")}
+                    >
+                      {i18n.t("remove_content")}
+                    </label>
+                  </div>
                 </div>
               </div>
-            </div>
-            {/* TODO hold off on expires until later */}
-            {/* <div class="form-group row"> */}
-            {/*   <label class="col-form-label">Expires</label> */}
-            {/*   <input type="date" class="form-control mr-2" placeholder={i18n.t('expires')} value={this.state.banExpires} onInput={linkEvent(this, this.handleModBanExpiresChange)} /> */}
-            {/* </div> */}
-            <div class="form-group row">
-              <button
-                type="cancel"
-                class="btn btn-secondary mr-2"
-                aria-label={i18n.t("cancel")}
-                onClick={linkEvent(this, this.handleModBanSubmitCancel)}
-              >
-                {i18n.t("cancel")}
-              </button>
-              <button
-                type="submit"
-                class="btn btn-secondary"
-                aria-label={i18n.t("ban")}
-              >
-                {i18n.t("ban")} {pv.person.name}
-              </button>
-            </div>
-          </form>
-        )}
-      </>
+              {/* TODO hold off on expires until later */}
+              {/* <div class="form-group row"> */}
+              {/*   <label class="col-form-label">Expires</label> */}
+              {/*   <input type="date" class="form-control mr-2" placeholder={i18n.t('expires')} value={this.state.banExpires} onInput={linkEvent(this, this.handleModBanExpiresChange)} /> */}
+              {/* </div> */}
+              <div className="form-group row">
+                <button
+                  type="reset"
+                  className="btn btn-secondary mr-2"
+                  aria-label={i18n.t("cancel")}
+                  onClick={linkEvent(this, this.handleModBanSubmitCancel)}
+                >
+                  {i18n.t("cancel")}
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-secondary"
+                  aria-label={i18n.t("ban")}
+                >
+                  {i18n.t("ban")} {pv.person.name}
+                </button>
+              </div>
+            </form>
+          )}
+        </>
+      )
     );
   }
 
   moderates() {
+    let moderates = this.state.personRes?.moderates;
     return (
-      <div>
-        {this.state.personRes.moderates.length > 0 && (
-          <div class="card border-secondary mb-3">
-            <div class="card-body">
-              <h5>{i18n.t("moderates")}</h5>
-              <ul class="list-unstyled mb-0">
-                {this.state.personRes.moderates.map(cmv => (
-                  <li>
-                    <CommunityLink community={cmv.community} />
-                  </li>
-                ))}
-              </ul>
-            </div>
+      moderates &&
+      moderates.length > 0 && (
+        <div className="card border-secondary mb-3">
+          <div className="card-body">
+            <h5>{i18n.t("moderates")}</h5>
+            <ul className="list-unstyled mb-0">
+              {moderates.map(cmv => (
+                <li key={cmv.community.id}>
+                  <CommunityLink community={cmv.community} />
+                </li>
+              ))}
+            </ul>
           </div>
-        )}
-      </div>
+        </div>
+      )
     );
   }
 
   follows() {
-    let follows = UserService.Instance.myUserInfo.follows;
+    let follows = UserService.Instance.myUserInfo?.follows;
     return (
-      <div>
-        {follows.length > 0 && (
-          <div class="card border-secondary mb-3">
-            <div class="card-body">
-              <h5>{i18n.t("subscribed")}</h5>
-              <ul class="list-unstyled mb-0">
-                {follows.map(cfv => (
-                  <li>
-                    <CommunityLink community={cfv.community} />
-                  </li>
-                ))}
-              </ul>
-            </div>
+      follows &&
+      follows.length > 0 && (
+        <div className="card border-secondary mb-3">
+          <div className="card-body">
+            <h5>{i18n.t("subscribed")}</h5>
+            <ul className="list-unstyled mb-0">
+              {follows.map(cfv => (
+                <li key={cfv.community.id}>
+                  <CommunityLink community={cfv.community} />
+                </li>
+              ))}
+            </ul>
           </div>
-        )}
-      </div>
+        </div>
+      )
     );
   }
 
@@ -644,34 +677,12 @@ export class Profile extends Component<any, ProfileState> {
     this.props.history.push(
       `${typeView}/view/${viewStr}/sort/${sortStr}/page/${page}`
     );
-    this.state.loading = true;
-    this.setState(this.state);
+    this.setState({ loading: true });
     this.fetchUserData();
   }
 
-  get canAdmin(): boolean {
-    return (
-      this.state.siteRes?.admins &&
-      canMod(
-        UserService.Instance.myUserInfo,
-        this.state.siteRes.admins.map(a => a.person.id),
-        this.state.personRes?.person_view.person.id
-      )
-    );
-  }
-
-  get personIsAdmin(): boolean {
-    return (
-      this.state.siteRes?.admins &&
-      isMod(
-        this.state.siteRes.admins.map(a => a.person.id),
-        this.state.personRes?.person_view.person.id
-      )
-    );
-  }
-
   handlePageChange(page: number) {
-    this.updateUrl({ page });
+    this.updateUrl({ page: page });
   }
 
   handleSortChange(val: SortType) {
@@ -686,52 +697,48 @@ export class Profile extends Component<any, ProfileState> {
   }
 
   handleModBanShow(i: Profile) {
-    i.state.showBanDialog = true;
-    i.setState(i.state);
+    i.setState({ showBanDialog: true });
   }
 
   handleModBanReasonChange(i: Profile, event: any) {
-    i.state.banReason = event.target.value;
-    i.setState(i.state);
+    i.setState({ banReason: event.target.value });
   }
 
   handleModBanExpireDaysChange(i: Profile, event: any) {
-    i.state.banExpireDays = event.target.value;
-    i.setState(i.state);
+    i.setState({ banExpireDays: event.target.value });
   }
 
   handleModRemoveDataChange(i: Profile, event: any) {
-    i.state.removeData = event.target.checked;
-    i.setState(i.state);
+    i.setState({ removeData: event.target.checked });
   }
 
   handleModBanSubmitCancel(i: Profile, event?: any) {
     event.preventDefault();
-    i.state.showBanDialog = false;
-    i.setState(i.state);
+    i.setState({ showBanDialog: false });
   }
 
   handleModBanSubmit(i: Profile, event?: any) {
     if (event) event.preventDefault();
+    let person = i.state.personRes?.person_view.person;
+    let auth = myAuth();
+    if (person && auth) {
+      // If its an unban, restore all their data
+      let ban = !person.banned;
+      if (ban == false) {
+        i.setState({ removeData: false });
+      }
+      let form: BanPerson = {
+        person_id: person.id,
+        ban,
+        remove_data: i.state.removeData,
+        reason: i.state.banReason,
+        expires: futureDaysToUnixTime(i.state.banExpireDays),
+        auth,
+      };
+      WebSocketService.Instance.send(wsClient.banPerson(form));
 
-    let pv = i.state.personRes.person_view;
-    // If its an unban, restore all their data
-    let ban = !pv.person.banned;
-    if (ban == false) {
-      i.state.removeData = false;
+      i.setState({ showBanDialog: false });
     }
-    let form: BanPerson = {
-      person_id: pv.person.id,
-      ban,
-      remove_data: i.state.removeData,
-      reason: i.state.banReason,
-      expires: futureDaysToUnixTime(i.state.banExpireDays),
-      auth: authField(),
-    };
-    WebSocketService.Instance.send(wsClient.banPerson(form));
-
-    i.state.showBanDialog = false;
-    i.setState(i.state);
   }
 
   parseMessage(msg: any) {
@@ -749,76 +756,81 @@ export class Profile extends Component<any, ProfileState> {
       // Since the PersonDetails contains posts/comments as well as some general user info we listen here as well
       // and set the parent state if it is not set or differs
       // TODO this might need to get abstracted
-      let data = wsJsonToRes<GetPersonDetailsResponse>(msg).data;
-      this.state.personRes = data;
-      console.log(data);
-      this.state.loading = false;
+      let data = wsJsonToRes<GetPersonDetailsResponse>(msg);
+      this.setState({ personRes: data, loading: false });
       this.setPersonBlock();
-      this.setState(this.state);
       restoreScrollPosition(this.context);
     } else if (op == UserOperation.AddAdmin) {
-      let data = wsJsonToRes<AddAdminResponse>(msg).data;
-      this.state.siteRes.admins = data.admins;
-      this.setState(this.state);
+      let data = wsJsonToRes<AddAdminResponse>(msg);
+      this.setState(s => ((s.siteRes.admins = data.admins), s));
     } else if (op == UserOperation.CreateCommentLike) {
-      let data = wsJsonToRes<CommentResponse>(msg).data;
-      createCommentLikeRes(data.comment_view, this.state.personRes.comments);
+      let data = wsJsonToRes<CommentResponse>(msg);
+      createCommentLikeRes(data.comment_view, this.state.personRes?.comments);
       this.setState(this.state);
     } else if (
       op == UserOperation.EditComment ||
       op == UserOperation.DeleteComment ||
       op == UserOperation.RemoveComment
     ) {
-      let data = wsJsonToRes<CommentResponse>(msg).data;
-      editCommentRes(data.comment_view, this.state.personRes.comments);
+      let data = wsJsonToRes<CommentResponse>(msg);
+      editCommentRes(data.comment_view, this.state.personRes?.comments);
       this.setState(this.state);
     } else if (op == UserOperation.CreateComment) {
-      let data = wsJsonToRes<CommentResponse>(msg).data;
-      if (
-        UserService.Instance.myUserInfo &&
-        data.comment_view.creator.id ==
-          UserService.Instance.myUserInfo?.local_user_view.person.id
-      ) {
+      let data = wsJsonToRes<CommentResponse>(msg);
+      let mui = UserService.Instance.myUserInfo;
+      if (data.comment_view.creator.id == mui?.local_user_view.person.id) {
         toast(i18n.t("reply_sent"));
       }
     } else if (op == UserOperation.SaveComment) {
-      let data = wsJsonToRes<CommentResponse>(msg).data;
-      saveCommentRes(data.comment_view, this.state.personRes.comments);
+      let data = wsJsonToRes<CommentResponse>(msg);
+      saveCommentRes(data.comment_view, this.state.personRes?.comments);
       this.setState(this.state);
     } else if (
       op == UserOperation.EditPost ||
       op == UserOperation.DeletePost ||
       op == UserOperation.RemovePost ||
       op == UserOperation.LockPost ||
-      op == UserOperation.StickyPost ||
+      op == UserOperation.FeaturePost ||
       op == UserOperation.SavePost
     ) {
-      let data = wsJsonToRes<PostResponse>(msg).data;
-      editPostFindRes(data.post_view, this.state.personRes.posts);
+      let data = wsJsonToRes<PostResponse>(msg);
+      editPostFindRes(data.post_view, this.state.personRes?.posts);
       this.setState(this.state);
     } else if (op == UserOperation.CreatePostLike) {
-      let data = wsJsonToRes<PostResponse>(msg).data;
-      createPostLikeFindRes(data.post_view, this.state.personRes.posts);
+      let data = wsJsonToRes<PostResponse>(msg);
+      createPostLikeFindRes(data.post_view, this.state.personRes?.posts);
       this.setState(this.state);
     } else if (op == UserOperation.BanPerson) {
-      let data = wsJsonToRes<BanPersonResponse>(msg).data;
-      this.state.personRes.comments
+      let data = wsJsonToRes<BanPersonResponse>(msg);
+      let res = this.state.personRes;
+      res?.comments
         .filter(c => c.creator.id == data.person_view.person.id)
         .forEach(c => (c.creator.banned = data.banned));
-      this.state.personRes.posts
+      res?.posts
         .filter(c => c.creator.id == data.person_view.person.id)
         .forEach(c => (c.creator.banned = data.banned));
-      let pv = this.state.personRes.person_view;
+      let pv = res?.person_view;
 
-      if (pv.person.id == data.person_view.person.id) {
+      if (pv?.person.id == data.person_view.person.id) {
         pv.person.banned = data.banned;
       }
       this.setState(this.state);
     } else if (op == UserOperation.BlockPerson) {
-      let data = wsJsonToRes<BlockPersonResponse>(msg).data;
+      let data = wsJsonToRes<BlockPersonResponse>(msg);
       updatePersonBlock(data);
       this.setPersonBlock();
       this.setState(this.state);
+    } else if (
+      op == UserOperation.PurgePerson ||
+      op == UserOperation.PurgePost ||
+      op == UserOperation.PurgeComment ||
+      op == UserOperation.PurgeCommunity
+    ) {
+      let data = wsJsonToRes<PurgeItemResponse>(msg);
+      if (data.success) {
+        toast(i18n.t("purge_success"));
+        this.context.router.history.push(`/`);
+      }
     }
   }
 }

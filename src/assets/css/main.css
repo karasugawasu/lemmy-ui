@@ -220,7 +220,7 @@
   position: absolute;
   background-color: var(--light);
   min-width: 160px;
-  box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+  box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
   z-index: 2000;
 }
 
@@ -368,7 +368,7 @@ pre {
 }
 
 .show-input {
-  width: 13em !important;
+  width: 13vw !important;
 }
 .hide-input {
   background: transparent !important;
@@ -430,11 +430,15 @@ br.big {
 }
 
 .honeypot {
-  display:none !important;
+  display: none !important;
 }
 
 .slight-radius {
   border-radius: 4px;
+}
+
+.modlog-choices-font-size {
+  font-size: 0.9375rem !important;
 }
 
 .preview-lines {
@@ -488,4 +492,11 @@ br.big {
     transform: scale(1);
     opacity: 1;
   }
+}
+.lang-select-action {
+  width: 100px;
+}
+
+.lang-select-action:focus {
+  width: auto;
 }

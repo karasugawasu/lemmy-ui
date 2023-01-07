@@ -1,3 +1,4 @@
+import { htmlToText } from "html-to-text";
 import { Component } from "inferno";
 import { Helmet } from "inferno-helmet";
 import { httpExternalPath } from "../../env";
@@ -14,14 +15,16 @@ interface HtmlTagsProps {
 export class HtmlTags extends Component<HtmlTagsProps, any> {
   render() {
     let url = httpExternalPath(this.props.path);
+    let desc = this.props.description;
+    let image = this.props.image;
 
     return (
       <Helmet title={this.props.title}>
         {["title", "og:title", "twitter:title"].map(t => (
-          <meta property={t} content={this.props.title} />
+          <meta key={t} property={t} content={this.props.title} />
         ))}
         {["og:url", "twitter:url"].map(u => (
-          <meta property={u} content={url} />
+          <meta key={u} property={u} content={url} />
         ))}
 
         {/* Open Graph / Facebook */}
@@ -31,15 +34,19 @@ export class HtmlTags extends Component<HtmlTagsProps, any> {
         <meta property="twitter:card" content="summary_large_image" />
 
         {/* Optional desc and images */}
-        {this.props.description &&
-          ["description", "og:description", "twitter:description"].map(n => (
-            <meta name={n} content={md.renderInline(this.props.description)} />
-          ))}
-
-        {this.props.image &&
-          ["og:image", "twitter:image"].map(p => (
-            <meta property={p} content={this.props.image} />
-          ))}
+        {["description", "og:description", "twitter:description"].map(
+          n =>
+            desc && (
+              <meta
+                key={n}
+                name={n}
+                content={htmlToText(md.renderInline(desc))}
+              />
+            )
+        )}
+        {["og:image", "twitter:image"].map(
+          p => image && <meta key={p} property={p} content={image} />
+        )}
       </Helmet>
     );
   }

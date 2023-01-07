@@ -1,47 +1,38 @@
 import { Component } from "inferno";
 import { T } from "inferno-i18next-dess";
 import { Link } from "inferno-router";
-import { PostView } from "lemmy-js-client";
+import { Language, PostView } from "lemmy-js-client";
 import { i18n } from "../../i18next";
 import { PostListing } from "./post-listing";
 
 interface PostListingsProps {
   posts: PostView[];
+  allLanguages: Language[];
+  siteLanguages: number[];
   showCommunity?: boolean;
   removeDuplicates?: boolean;
-  enableDownvotes: boolean;
-  enableNsfw: boolean;
+  enableDownvotes?: boolean;
+  enableNsfw?: boolean;
 }
 
-interface PostListingsState {
-  posts: PostView[];
-}
-
-export class PostListings extends Component<
-  PostListingsProps,
-  PostListingsState
-> {
+export class PostListings extends Component<PostListingsProps, any> {
   duplicatesMap = new Map<number, PostView[]>();
-
-  private emptyState: PostListingsState = {
-    posts: [],
-  };
 
   constructor(props: any, context: any) {
     super(props, context);
-    this.state = this.emptyState;
-    if (this.props.removeDuplicates) {
-      this.state.posts = this.removeDuplicates();
-    } else {
-      this.state.posts = this.props.posts;
-    }
+  }
+
+  get posts() {
+    return this.props.removeDuplicates
+      ? this.removeDuplicates()
+      : this.props.posts;
   }
 
   render() {
     return (
       <div>
-        {this.state.posts.length > 0 ? (
-          this.state.posts.map(post_view => (
+        {this.posts.length > 0 ? (
+          this.posts.map(post_view => (
             <>
               <PostListing
                 post_view={post_view}
@@ -49,14 +40,16 @@ export class PostListings extends Component<
                 showCommunity={this.props.showCommunity}
                 enableDownvotes={this.props.enableDownvotes}
                 enableNsfw={this.props.enableNsfw}
+                allLanguages={this.props.allLanguages}
+                siteLanguages={this.props.siteLanguages}
               />
-              <hr class="my-3" />
+              <hr className="my-3" />
             </>
           ))
         ) : (
           <>
             <div>{i18n.t("no_posts")}</div>
-            {this.props.showCommunity !== undefined && (
+            {this.props.showCommunity && (
               <T i18nKey="subscribe_to_communities">
                 #<Link to="/communities">#</Link>
               </T>
@@ -76,17 +69,18 @@ export class PostListings extends Component<
 
     // Loop over the posts, find ones with same urls
     for (let pv of posts) {
+      let url = pv.post.url;
       if (
-        pv.post.url &&
         !pv.post.deleted &&
         !pv.post.removed &&
         !pv.community.deleted &&
-        !pv.community.removed
+        !pv.community.removed &&
+        url
       ) {
-        if (!urlMap.get(pv.post.url)) {
-          urlMap.set(pv.post.url, [pv]);
+        if (!urlMap.get(url)) {
+          urlMap.set(url, [pv]);
         } else {
-          urlMap.get(pv.post.url).push(pv);
+          urlMap.get(url)?.push(pv);
         }
       }
     }
@@ -103,8 +97,9 @@ export class PostListings extends Component<
 
     for (let i = 0; i < posts.length; i++) {
       let pv = posts[i];
-      if (pv.post.url) {
-        let found = urlMap.get(pv.post.url);
+      let url = pv.post.url;
+      if (url) {
+        let found = urlMap.get(url);
         if (found) {
           // If its the oldest, add
           if (pv.post.id == found[0].post.id) {

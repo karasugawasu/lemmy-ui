@@ -1,52 +1,48 @@
 import { Component, linkEvent } from "inferno";
 import {
   GetSiteResponse,
-  Login as LoginForm,
+  Login as LoginI,
   LoginResponse,
   PasswordReset,
-  SiteView,
   UserOperation,
+  wsJsonToRes,
+  wsUserOp,
 } from "lemmy-js-client";
 import { Subscription } from "rxjs";
 import { i18n } from "../../i18next";
 import { UserService, WebSocketService } from "../../services";
 import {
-  authField,
   isBrowser,
   setIsoData,
   toast,
   validEmail,
   wsClient,
-  wsJsonToRes,
   wsSubscribe,
-  wsUserOp,
 } from "../../utils";
 import { HtmlTags } from "../common/html-tags";
 import { Spinner } from "../common/icon";
 
 interface State {
-  loginForm: LoginForm;
+  form: {
+    username_or_email?: string;
+    password?: string;
+  };
   loginLoading: boolean;
-  site_view: SiteView;
+  siteRes: GetSiteResponse;
 }
 
 export class Login extends Component<any, State> {
   private isoData = setIsoData(this.context);
-  private subscription: Subscription;
+  private subscription?: Subscription;
 
-  emptyState: State = {
-    loginForm: {
-      username_or_email: undefined,
-      password: undefined,
-    },
+  state: State = {
+    form: {},
     loginLoading: false,
-    site_view: this.isoData.site_res.site_view,
+    siteRes: this.isoData.site_res,
   };
 
   constructor(props: any, context: any) {
     super(props, context);
-
-    this.state = this.emptyState;
 
     this.parseMessage = this.parseMessage.bind(this);
     this.subscription = wsSubscribe(this.parseMessage);
@@ -65,12 +61,12 @@ export class Login extends Component<any, State> {
 
   componentWillUnmount() {
     if (isBrowser()) {
-      this.subscription.unsubscribe();
+      this.subscription?.unsubscribe();
     }
   }
 
   get documentTitle(): string {
-    return `${i18n.t("login")} - ${this.state.site_view.site.name}`;
+    return `${i18n.t("login")} - ${this.state.siteRes.site_view.site.name}`;
   }
 
   get isLemmyMl(): boolean {
@@ -79,13 +75,13 @@ export class Login extends Component<any, State> {
 
   render() {
     return (
-      <div class="container">
+      <div className="container-lg">
         <HtmlTags
           title={this.documentTitle}
           path={this.context.router.route.match.url}
         />
-        <div class="row">
-          <div class="col-12 col-lg-6 offset-lg-3">{this.loginForm()}</div>
+        <div className="row">
+          <div className="col-12 col-lg-6 offset-lg-3">{this.loginForm()}</div>
         </div>
       </div>
     );
@@ -96,19 +92,19 @@ export class Login extends Component<any, State> {
       <div>
         <form onSubmit={linkEvent(this, this.handleLoginSubmit)}>
           <h5>{i18n.t("login")}</h5>
-          <div class="form-group row">
+          <div className="form-group row">
             <label
-              class="col-sm-2 col-form-label"
+              className="col-sm-2 col-form-label"
               htmlFor="login-email-or-username"
             >
               {i18n.t("email_or_username")}
             </label>
-            <div class="col-sm-10">
+            <div className="col-sm-10">
               <input
                 type="text"
-                class="form-control"
+                className="form-control"
                 id="login-email-or-username"
-                value={this.state.loginForm.username_or_email}
+                value={this.state.form.username_or_email}
                 onInput={linkEvent(this, this.handleLoginUsernameChange)}
                 autoComplete="email"
                 required
@@ -116,17 +112,17 @@ export class Login extends Component<any, State> {
               />
             </div>
           </div>
-          <div class="form-group row">
-            <label class="col-sm-2 col-form-label" htmlFor="login-password">
+          <div className="form-group row">
+            <label className="col-sm-2 col-form-label" htmlFor="login-password">
               {i18n.t("password")}
             </label>
-            <div class="col-sm-10">
+            <div className="col-sm-10">
               <input
                 type="password"
                 id="login-password"
-                value={this.state.loginForm.password}
+                value={this.state.form.password}
                 onInput={linkEvent(this, this.handleLoginPasswordChange)}
-                class="form-control"
+                className="form-control"
                 autoComplete="current-password"
                 required
                 maxLength={60}
@@ -135,16 +131,19 @@ export class Login extends Component<any, State> {
                 type="button"
                 onClick={linkEvent(this, this.handlePasswordReset)}
                 className="btn p-0 btn-link d-inline-block float-right text-muted small font-weight-bold pointer-events not-allowed"
-                disabled={!validEmail(this.state.loginForm.username_or_email)}
+                disabled={
+                  !!this.state.form.username_or_email &&
+                  !validEmail(this.state.form.username_or_email)
+                }
                 title={i18n.t("no_password_reset")}
               >
                 {i18n.t("forgot_password")}
               </button>
             </div>
           </div>
-          <div class="form-group row">
-            <div class="col-sm-10">
-              <button type="submit" class="btn btn-secondary">
+          <div className="form-group row">
+            <div className="col-sm-10">
+              <button type="submit" className="btn btn-secondary">
                 {this.state.loginLoading ? <Spinner /> : i18n.t("login")}
               </button>
             </div>
@@ -156,27 +155,36 @@ export class Login extends Component<any, State> {
 
   handleLoginSubmit(i: Login, event: any) {
     event.preventDefault();
-    i.state.loginLoading = true;
-    i.setState(i.state);
-    WebSocketService.Instance.send(wsClient.login(i.state.loginForm));
+    i.setState({ loginLoading: true });
+    let lForm = i.state.form;
+    let username_or_email = lForm.username_or_email;
+    let password = lForm.password;
+    if (username_or_email && password) {
+      let form: LoginI = {
+        username_or_email,
+        password,
+      };
+      WebSocketService.Instance.send(wsClient.login(form));
+    }
   }
 
   handleLoginUsernameChange(i: Login, event: any) {
-    i.state.loginForm.username_or_email = event.target.value;
+    i.state.form.username_or_email = event.target.value;
     i.setState(i.state);
   }
 
   handleLoginPasswordChange(i: Login, event: any) {
-    i.state.loginForm.password = event.target.value;
+    i.state.form.password = event.target.value;
     i.setState(i.state);
   }
 
   handlePasswordReset(i: Login, event: any) {
     event.preventDefault();
-    let resetForm: PasswordReset = {
-      email: i.state.loginForm.username_or_email,
-    };
-    WebSocketService.Instance.send(wsClient.passwordReset(resetForm));
+    let email = i.state.form.username_or_email;
+    if (email) {
+      let resetForm: PasswordReset = { email };
+      WebSocketService.Instance.send(wsClient.passwordReset(resetForm));
+    }
   }
 
   parseMessage(msg: any) {
@@ -184,28 +192,19 @@ export class Login extends Component<any, State> {
     console.log(msg);
     if (msg.error) {
       toast(i18n.t(msg.error), "danger");
-      this.state = this.emptyState;
-      this.setState(this.state);
+      this.setState({ form: {} });
       return;
     } else {
       if (op == UserOperation.Login) {
-        let data = wsJsonToRes<LoginResponse>(msg).data;
-        this.state = this.emptyState;
-        this.setState(this.state);
+        let data = wsJsonToRes<LoginResponse>(msg);
         UserService.Instance.login(data);
-        WebSocketService.Instance.send(
-          wsClient.userJoin({
-            auth: authField(),
-          })
-        );
-        toast(i18n.t("logged_in"));
         this.props.history.push("/");
+        location.reload();
       } else if (op == UserOperation.PasswordReset) {
         toast(i18n.t("reset_password_mail_sent"));
       } else if (op == UserOperation.GetSite) {
-        let data = wsJsonToRes<GetSiteResponse>(msg).data;
-        this.state.site_view = data.site_view;
-        this.setState(this.state);
+        let data = wsJsonToRes<GetSiteResponse>(msg);
+        this.setState({ siteRes: data });
       }
     }
   }

@@ -10,13 +10,12 @@ interface InstancesState {
 
 export class Instances extends Component<any, InstancesState> {
   private isoData = setIsoData(this.context);
-  private emptyState: InstancesState = {
+  state: InstancesState = {
     siteRes: this.isoData.site_res,
   };
 
   constructor(props: any, context: any) {
     super(props, context);
-    this.state = this.emptyState;
   }
 
   get documentTitle(): string {
@@ -24,42 +23,45 @@ export class Instances extends Component<any, InstancesState> {
   }
 
   render() {
-    let federated_instances = this.state.siteRes?.federated_instances;
-    return (
-      federated_instances && (
-        <div class="container">
-          <HtmlTags
-            title={this.documentTitle}
-            path={this.context.router.route.match.url}
-          />
-          <div class="row">
-            <div class="col-md-6">
-              <h5>{i18n.t("linked_instances")}</h5>
-              {this.itemList(federated_instances.linked)}
-            </div>
-            {federated_instances.allowed?.length > 0 && (
-              <div class="col-md-6">
+    let federated_instances = this.state.siteRes.federated_instances;
+    return federated_instances ? (
+      <div className="container-lg">
+        <HtmlTags
+          title={this.documentTitle}
+          path={this.context.router.route.match.url}
+        />
+        <div className="row">
+          <div className="col-md-6">
+            <h5>{i18n.t("linked_instances")}</h5>
+            {this.itemList(federated_instances.linked)}
+          </div>
+          {federated_instances.allowed &&
+            federated_instances.allowed.length > 0 && (
+              <div className="col-md-6">
                 <h5>{i18n.t("allowed_instances")}</h5>
                 {this.itemList(federated_instances.allowed)}
               </div>
             )}
-            {federated_instances.blocked?.length > 0 && (
-              <div class="col-md-6">
+          {federated_instances.blocked &&
+            federated_instances.blocked.length > 0 && (
+              <div className="col-md-6">
                 <h5>{i18n.t("blocked_instances")}</h5>
                 {this.itemList(federated_instances.blocked)}
               </div>
             )}
-          </div>
         </div>
-      )
+      </div>
+    ) : (
+      <></>
     );
   }
 
   itemList(items: string[]) {
+    let noneFound = <div>{i18n.t("none_found")}</div>;
     return items.length > 0 ? (
       <ul>
         {items.map(i => (
-          <li>
+          <li key={i}>
             <a href={`https://${i}`} rel={relTags}>
               {i}
             </a>
@@ -67,7 +69,7 @@ export class Instances extends Component<any, InstancesState> {
         ))}
       </ul>
     ) : (
-      <div>{i18n.t("none_found")}</div>
+      noneFound
     );
   }
 }

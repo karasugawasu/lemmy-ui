@@ -176,8 +176,8 @@ export const md = new MarkdownIt(markdownItConfig)
     },
     permalink: markdown_it_anchor.permalink.linkInsideHeader({
       symbol: `
-      <svg class="icon anchor-icon" aria-hidden="true"><use xlink:href="#icon-link"></use></svg>
-    `,
+      <svg class="icon"><use xlink:href="/static/assets/symbols.svg#icon-link"></use></svg>
+      `,
       placement: "before",
     }),
   })

@@ -35,7 +35,6 @@ import {
   isBrowser,
   isImage,
   myAuth,
-  myFirstDiscussionLanguageId,
   pictrsDeleteToast,
   relTags,
   setupTippy,
@@ -169,13 +168,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
   }
 
   render() {
-    let firstLang =
-      this.state.form.language_id ??
-      myFirstDiscussionLanguageId(
-        this.props.allLanguages,
-        this.props.siteLanguages,
-        UserService.Instance.myUserInfo
-      );
+    let firstLang = this.state.form.language_id;
     let selectedLangs = firstLang ? Array.of(firstLang) : undefined;
 
     let url = this.state.form.url;
@@ -608,9 +601,9 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
           i.state.form.url = url;
           i.setState({ imageLoading: false });
           pictrsDeleteToast(
-            `${i18n.t("click_to_delete_picture")}: ${file.name}`,
-            `${i18n.t("picture_deleted")}: ${file.name}`,
-            `${i18n.t("failed_to_delete_picture")}: ${file.name}`,
+            i18n.t("click_to_delete_picture", file.name),
+            i18n.t("picture_deleted", file.name),
+            i18n.t("failed_to_delete_picture", file.name),
             deleteUrl
           );
         } else {

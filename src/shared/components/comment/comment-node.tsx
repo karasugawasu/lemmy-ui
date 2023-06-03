@@ -39,6 +39,7 @@ import {
   colorList,
   commentTreeMaxDepth,
   futureDaysToUnixTime,
+  getCommentParentId,
   isAdmin,
   isBanned,
   isMod,
@@ -236,29 +237,24 @@ export class CommentNode extends Component<CommentNodeProps, CommentNodeState> {
               {cv.comment.distinguished && (
                 <Icon icon="shield" inline classes={`text-danger mr-2`} />
               )}
-              {isMod_ && (
-                <div className="badge badge-light d-none d-sm-inline mr-2">
-                  {i18n.t("mod")}
-                </div>
-              )}
-              {isAdmin_ && (
-                <div className="badge badge-light d-none d-sm-inline mr-2">
-                  {i18n.t("admin")}
-                </div>
-              )}
               {this.isPostCreator && (
                 <div className="badge badge-light d-none d-sm-inline mr-2">
                   {i18n.t("creator")}
                 </div>
               )}
-              {cv.creator.bot_account && (
-                <div className="badge badge-light d-none d-sm-inline mr-2">
-                  {i18n.t("bot_account").toLowerCase()}
+              {isMod_ && (
+                <div className="badge d-none d-sm-inline mr-2">
+                  {i18n.t("mod")}
                 </div>
               )}
-              {(cv.creator_banned_from_community || isBanned(cv.creator)) && (
-                <div className="badge badge-danger mr-2">
-                  {i18n.t("banned")}
+              {isAdmin_ && (
+                <div className="badge d-none d-sm-inline mr-2">
+                  {i18n.t("admin")}
+                </div>
+              )}
+              {cv.creator.bot_account && (
+                <div className="badge d-none d-sm-inline mr-2">
+                  {i18n.t("bot_account").toLowerCase()}
                 </div>
               )}
               {this.props.showCommunity && (
@@ -284,8 +280,17 @@ export class CommentNode extends Component<CommentNodeProps, CommentNodeState> {
                 )}
               </button>
               {this.linkBtn(true)}
+              {cv.comment.language_id !== 0 && (
+                <span className="badge d-none d-sm-inline mr-2">
+                  {
+                    this.props.allLanguages.find(
+                      lang => lang.id === cv.comment.language_id
+                    )?.name
+                  }
+                </span>
+              )}
               {/* This is an expanding spacer for mobile */}
-              <div className="mr-lg-5 flex-grow-1 flex-lg-grow-0 unselectable pointer mx-2"></div>
+              <div className="mr-lg-5 flex-grow-1 flex-lg-grow-0 unselectable pointer mx-2" />
               {showScores() && (
                 <>
                   <a
@@ -1046,11 +1051,14 @@ export class CommentNode extends Component<CommentNodeProps, CommentNodeState> {
       ? i18n.t("show_context")
       : i18n.t("link");
 
+    // The context button should show the parent comment by default
+    const parentCommentId = getCommentParentId(cv.comment) ?? cv.comment.id;
+
     return (
       <>
         <Link
           className={classnames}
-          to={`/comment/${cv.comment.id}`}
+          to={`/comment/${parentCommentId}`}
           title={title}
         >
           <Icon icon="link" classes="icon-inline" />

@@ -48,11 +48,9 @@ export class LanguageSelect extends Component<LanguageSelectProps, any> {
       this.selectBtn
     ) : (
       <div>
-        {this.props.multiple && (
-          <div className="alert alert-warning" role="alert">
-            {i18n.t("undetermined_language_warning")}
-          </div>
-        )}
+        <div className="alert alert-warning" role="alert">
+          {i18n.t("undetermined_language_warning")}
+        </div>
         <div className="form-group row">
           <label
             className={classNames("col-form-label", {
@@ -107,6 +105,11 @@ export class LanguageSelect extends Component<LanguageSelectProps, any> {
         aria-label="action"
         multiple={this.props.multiple}
       >
+        {!this.props.multiple && (
+          <option selected disabled hidden>
+            {i18n.t("language_select_placeholder")}
+          </option>
+        )}
         {filteredLangs.map(l => (
           <option
             key={l.id}

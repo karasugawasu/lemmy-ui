@@ -376,7 +376,9 @@ export class Search extends Component<any, SearchState> {
         {this.state.type_ == SearchType.Communities && this.communities()}
         {this.state.type_ == SearchType.Users && this.users()}
         {this.state.type_ == SearchType.Url && this.posts()}
-        {this.resultsCount() == 0 && <span>{i18n.t("no_results")}</span>}
+        {this.resultsCount() === 0 && !this.state.loading && (
+          <span>{i18n.t("no_results")}</span>
+        )}
         <Paginator page={this.state.page} onChange={this.handlePageChange} />
       </div>
     );
@@ -988,7 +990,7 @@ export class Search extends Component<any, SearchState> {
   }
 
   checkFinishedLoading() {
-    if (this.state.searchResponse && this.state.resolveObjectResponse) {
+    if (this.state.searchResponse || this.state.resolveObjectResponse) {
       this.setState({ loading: false });
     }
   }

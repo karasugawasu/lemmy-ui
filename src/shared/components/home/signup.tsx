@@ -1,3 +1,6 @@
+import { myAuth, setIsoData } from "@utils/app";
+import { isBrowser } from "@utils/browser";
+import { validEmail } from "@utils/helpers";
 import { Options, passwordStrength } from "check-password-strength";
 import { NoOptionI18nKeys } from "i18next";
 import { Component, linkEvent } from "inferno";
@@ -7,26 +10,13 @@ import {
   GetCaptchaResponse,
   GetSiteResponse,
   LoginResponse,
-  Register,
-  RegistrationMode,
   SiteView,
-  UserOperation,
-  wsJsonToRes,
-  wsUserOp,
 } from "lemmy-js-client";
-import { Subscription } from "rxjs";
-import { i18n } from "../../i18next";
-import { UserService, WebSocketService } from "../../services";
-import {
-  isBrowser,
-  joinLemmyUrl,
-  mdToHtml,
-  setIsoData,
-  toast,
-  validEmail,
-  wsClient,
-  wsSubscribe,
-} from "../../utils";
+import { joinLemmyUrl } from "../../config";
+import { mdToHtml } from "../../markdown";
+import { I18NextService, UserService } from "../../services";
+import { HttpService, RequestState } from "../../services/HttpService";
+import { toast } from "../../toast";
 import { HtmlTags } from "../common/html-tags";
 import { Icon, Spinner } from "../common/icon";
 import { MarkdownTextArea } from "../common/markdown-textarea";
@@ -59,6 +49,8 @@ const passwordStrengthOptions: Options<string> = [
 ];
 
 interface State {
+  registerRes: RequestState<LoginResponse>;
+  captchaRes: RequestState<GetCaptchaResponse>;
   form: {
     username?: string;
     email?: string;
@@ -70,22 +62,20 @@ interface State {
     honeypot?: string;
     answer?: string;
   };
-  registerLoading: boolean;
-  captcha?: GetCaptchaResponse;
   captchaPlaying: boolean;
   siteRes: GetSiteResponse;
 }
 
 export class Signup extends Component<any, State> {
   private isoData = setIsoData(this.context);
-  private subscription?: Subscription;
   private audio?: HTMLAudioElement;
 
   state: State = {
+    registerRes: { state: "empty" },
+    captchaRes: { state: "empty" },
     form: {
       show_nsfw: false,
     },
-    registerLoading: false,
     captchaPlaying: false,
     siteRes: this.isoData.site_res,
   };
@@ -94,28 +84,35 @@ export class Signup extends Component<any, State> {
     super(props, context);
 
     this.handleAnswerChange = this.handleAnswerChange.bind(this);
+  }
 
-    this.parseMessage = this.parseMessage.bind(this);
-    this.subscription = wsSubscribe(this.parseMessage);
-
-    if (isBrowser()) {
-      WebSocketService.Instance.send(wsClient.getCaptcha());
+  async componentDidMount() {
+    if (this.state.siteRes.site_view.local_site.captcha_enabled) {
+      await this.fetchCaptcha();
     }
   }
 
-  componentWillUnmount() {
-    if (isBrowser()) {
-      this.subscription?.unsubscribe();
-    }
+  async fetchCaptcha() {
+    this.setState({ captchaRes: { state: "loading" } });
+    this.setState({
+      captchaRes: await HttpService.client.getCaptcha({}),
+    });
+
+    this.setState(s => {
+      if (s.captchaRes.state == "success") {
+        s.form.captcha_uuid = s.captchaRes.data.ok?.uuid;
+      }
+      return s;
+    });
   }
 
   get documentTitle(): string {
-    let siteView = this.state.siteRes.site_view;
+    const siteView = this.state.siteRes.site_view;
     return `${this.titleName(siteView)} - ${siteView.site.name}`;
   }
 
   titleName(siteView: SiteView): string {
-    return i18n.t(
+    return I18NextService.i18n.t(
       siteView.local_site.private_instance ? "apply_to_join" : "sign_up"
     );
   }
@@ -126,7 +123,7 @@ export class Signup extends Component<any, State> {
 
   render() {
     return (
-      <div className="container-lg">
+      <div className="home-signup container-lg">
         <HtmlTags
           title={this.documentTitle}
           path={this.context.router.route.match.url}
@@ -141,13 +138,13 @@ export class Signup extends Component<any, State> {
   }
 
   registerForm() {
-    let siteView = this.state.siteRes.site_view;
+    const siteView = this.state.siteRes.site_view;
     return (
       <form onSubmit={linkEvent(this, this.handleRegisterSubmit)}>
         <h5>{this.titleName(siteView)}</h5>
 
         {this.isLemmyMl && (
-          <div className="form-group row">
+          <div className="mb-3 row">
             <div className="mt-2 mb-0 alert alert-warning" role="alert">
               <T i18nKey="lemmy_ml_registration_message">
                 #<a href={joinLemmyUrl}>#</a>
@@ -156,12 +153,12 @@ export class Signup extends Component<any, State> {
           </div>
         )}
 
-        <div className="form-group row">
+        <div className="mb-3 row">
           <label
             className="col-sm-2 col-form-label"
             htmlFor="register-username"
           >
-            {i18n.t("username")}
+            {I18NextService.i18n.t("username")}
           </label>
 
           <div className="col-sm-10">
@@ -174,14 +171,14 @@ export class Signup extends Component<any, State> {
               required
               minLength={3}
               pattern="[a-zA-Z0-9_]+"
-              title={i18n.t("community_reqs")}
+              title={I18NextService.i18n.t("community_reqs")}
             />
           </div>
         </div>
 
-        <div className="form-group row">
+        <div className="mb-3 row">
           <label className="col-sm-2 col-form-label" htmlFor="register-email">
-            {i18n.t("email")}
+            {I18NextService.i18n.t("email")}
           </label>
           <div className="col-sm-10">
             <input
@@ -190,8 +187,8 @@ export class Signup extends Component<any, State> {
               className="form-control"
               placeholder={
                 siteView.local_site.require_email_verification
-                  ? i18n.t("required")
-                  : i18n.t("optional")
+                  ? I18NextService.i18n.t("required")
+                  : I18NextService.i18n.t("optional")
               }
               value={this.state.form.email}
               autoComplete="email"
@@ -203,19 +200,19 @@ export class Signup extends Component<any, State> {
               this.state.form.email &&
               !validEmail(this.state.form.email) && (
                 <div className="mt-2 mb-0 alert alert-warning" role="alert">
-                  <Icon icon="alert-triangle" classes="icon-inline mr-2" />
-                  {i18n.t("no_password_reset")}
+                  <Icon icon="alert-triangle" classes="icon-inline me-2" />
+                  {I18NextService.i18n.t("no_password_reset")}
                 </div>
               )}
           </div>
         </div>
 
-        <div className="form-group row">
+        <div className="mb-3 row">
           <label
             className="col-sm-2 col-form-label"
             htmlFor="register-password"
           >
-            {i18n.t("password")}
+            {I18NextService.i18n.t("password")}
           </label>
           <div className="col-sm-10">
             <input
@@ -231,18 +228,20 @@ export class Signup extends Component<any, State> {
             />
             {this.state.form.password && (
               <div className={this.passwordColorClass}>
-                {i18n.t(this.passwordStrength as NoOptionI18nKeys)}
+                {I18NextService.i18n.t(
+                  this.passwordStrength as NoOptionI18nKeys
+                )}
               </div>
             )}
           </div>
         </div>
 
-        <div className="form-group row">
+        <div className="mb-3 row">
           <label
             className="col-sm-2 col-form-label"
             htmlFor="register-verify-password"
           >
-            {i18n.t("verify_password")}
+            {I18NextService.i18n.t("verify_password")}
           </label>
           <div className="col-sm-10">
             <input
@@ -258,14 +257,13 @@ export class Signup extends Component<any, State> {
           </div>
         </div>
 
-        {siteView.local_site.registration_mode ==
-          RegistrationMode.RequireApplication && (
+        {siteView.local_site.registration_mode == "RequireApplication" && (
           <>
-            <div className="form-group row">
+            <div className="mb-3 row">
               <div className="offset-sm-2 col-sm-10">
                 <div className="mt-2 alert alert-warning" role="alert">
-                  <Icon icon="alert-triangle" classes="icon-inline mr-2" />
-                  {i18n.t("fill_out_application")}
+                  <Icon icon="alert-triangle" classes="icon-inline me-2" />
+                  {I18NextService.i18n.t("fill_out_application")}
                 </div>
                 {siteView.local_site.application_question && (
                   <div
@@ -278,15 +276,16 @@ export class Signup extends Component<any, State> {
               </div>
             </div>
 
-            <div className="form-group row">
+            <div className="mb-3 row">
               <label
                 className="col-sm-2 col-form-label"
                 htmlFor="application_answer"
               >
-                {i18n.t("answer")}
+                {I18NextService.i18n.t("answer")}
               </label>
               <div className="col-sm-10">
                 <MarkdownTextArea
+                  initialContent=""
                   onContentChange={this.handleAnswerChange}
                   hideNavigationWarnings
                   allLanguages={[]}
@@ -296,21 +295,70 @@ export class Signup extends Component<any, State> {
             </div>
           </>
         )}
+        {this.renderCaptcha()}
+        <div className="mb-3 row">
+          <div className="col-sm-10">
+            <div className="form-check">
+              <input
+                className="form-check-input"
+                id="register-show-nsfw"
+                type="checkbox"
+                checked={this.state.form.show_nsfw}
+                onChange={linkEvent(this, this.handleRegisterShowNsfwChange)}
+              />
+              <label className="form-check-label" htmlFor="register-show-nsfw">
+                {I18NextService.i18n.t("show_nsfw")}
+              </label>
+            </div>
+          </div>
+        </div>
+        <input
+          tabIndex={-1}
+          autoComplete="false"
+          name="a_password"
+          type="text"
+          className="form-control honeypot"
+          id="register-honey"
+          value={this.state.form.honeypot}
+          onInput={linkEvent(this, this.handleHoneyPotChange)}
+        />
+        <div className="mb-3 row">
+          <div className="col-sm-10">
+            <button type="submit" className="btn btn-secondary">
+              {this.state.registerRes.state == "loading" ? (
+                <Spinner />
+              ) : (
+                this.titleName(siteView)
+              )}
+            </button>
+          </div>
+        </div>
+      </form>
+    );
+  }
 
-        {this.state.captcha && (
-          <div className="form-group row">
+  renderCaptcha() {
+    switch (this.state.captchaRes.state) {
+      case "loading":
+        return <Spinner />;
+      case "success": {
+        const res = this.state.captchaRes.data;
+        return (
+          <div className="mb-3 row">
             <label className="col-sm-2" htmlFor="register-captcha">
-              <span className="mr-2">{i18n.t("enter_code")}</span>
+              <span className="me-2">
+                {I18NextService.i18n.t("enter_code")}
+              </span>
               <button
                 type="button"
                 className="btn btn-secondary"
                 onClick={linkEvent(this, this.handleRegenCaptcha)}
-                aria-label={i18n.t("captcha")}
+                aria-label={I18NextService.i18n.t("captcha")}
               >
                 <Icon icon="refresh-cw" classes="icon-refresh-cw" />
               </button>
             </label>
-            {this.showCaptcha()}
+            {this.showCaptcha(res)}
             <div className="col-sm-6">
               <input
                 type="text"
@@ -325,55 +373,13 @@ export class Signup extends Component<any, State> {
               />
             </div>
           </div>
-        )}
-        {siteView.local_site.enable_nsfw && (
-          <div className="form-group row">
-            <div className="col-sm-10">
-              <div className="form-check">
-                <input
-                  className="form-check-input"
-                  id="register-show-nsfw"
-                  type="checkbox"
-                  checked={this.state.form.show_nsfw}
-                  onChange={linkEvent(this, this.handleRegisterShowNsfwChange)}
-                />
-                <label
-                  className="form-check-label"
-                  htmlFor="register-show-nsfw"
-                >
-                  {i18n.t("show_nsfw")}
-                </label>
-              </div>
-            </div>
-          </div>
-        )}
-        <input
-          tabIndex={-1}
-          autoComplete="false"
-          name="a_password"
-          type="text"
-          className="form-control honeypot"
-          id="register-honey"
-          value={this.state.form.honeypot}
-          onInput={linkEvent(this, this.handleHoneyPotChange)}
-        />
-        <div className="form-group row">
-          <div className="col-sm-10">
-            <button type="submit" className="btn btn-secondary">
-              {this.state.registerLoading ? (
-                <Spinner />
-              ) : (
-                this.titleName(siteView)
-              )}
-            </button>
-          </div>
-        </div>
-      </form>
-    );
+        );
+      }
+    }
   }
 
-  showCaptcha() {
-    let captchaRes = this.state.captcha?.ok;
+  showCaptcha(res: GetCaptchaResponse) {
+    const captchaRes = res?.ok;
     return captchaRes ? (
       <div className="col-sm-4">
         <>
@@ -381,13 +387,13 @@ export class Signup extends Component<any, State> {
             className="rounded-top img-fluid"
             src={this.captchaPngSrc(captchaRes)}
             style="border-bottom-right-radius: 0; border-bottom-left-radius: 0;"
-            alt={i18n.t("captcha")}
+            alt={I18NextService.i18n.t("captcha")}
           />
           {captchaRes.wav && (
             <button
-              className="rounded-bottom btn btn-sm btn-secondary btn-block"
+              className="rounded-bottom btn btn-sm btn-secondary d-block"
               style="border-top-right-radius: 0; border-top-left-radius: 0;"
-              title={i18n.t("play_captcha_audio")}
+              title={I18NextService.i18n.t("play_captcha_audio")}
               onClick={linkEvent(this, this.handleCaptchaPlay)}
               type="button"
               disabled={this.state.captchaPlaying}
@@ -403,14 +409,14 @@ export class Signup extends Component<any, State> {
   }
 
   get passwordStrength(): string | undefined {
-    let password = this.state.form.password;
+    const password = this.state.form.password;
     return password
       ? passwordStrength(password, passwordStrengthOptions).value
       : undefined;
   }
 
   get passwordColorClass(): string {
-    let strength = this.passwordStrength;
+    const strength = this.passwordStrength;
 
     if (strength && ["weak", "medium"].includes(strength)) {
       return "text-warning";
@@ -421,28 +427,71 @@ export class Signup extends Component<any, State> {
     }
   }
 
-  handleRegisterSubmit(i: Signup, event: any) {
+  async handleRegisterSubmit(i: Signup, event: any) {
     event.preventDefault();
-    i.setState({ registerLoading: true });
-    let cForm = i.state.form;
-    if (cForm.username && cForm.password && cForm.password_verify) {
-      let form: Register = {
-        username: cForm.username,
-        password: cForm.password,
-        password_verify: cForm.password_verify,
-        email: cForm.email,
-        show_nsfw: cForm.show_nsfw,
-        captcha_uuid: cForm.captcha_uuid,
-        captcha_answer: cForm.captcha_answer,
-        honeypot: cForm.honeypot,
-        answer: cForm.answer,
-      };
-      WebSocketService.Instance.send(wsClient.register(form));
+    const {
+      show_nsfw,
+      answer,
+      captcha_answer,
+      captcha_uuid,
+      email,
+      honeypot,
+      password,
+      password_verify,
+      username,
+    } = i.state.form;
+    if (username && password && password_verify) {
+      i.setState({ registerRes: { state: "loading" } });
+
+      const registerRes = await HttpService.client.register({
+        username,
+        password,
+        password_verify,
+        email,
+        show_nsfw,
+        captcha_uuid,
+        captcha_answer,
+        honeypot,
+        answer,
+      });
+      switch (registerRes.state) {
+        case "failed": {
+          toast(registerRes.msg, "danger");
+          i.setState({ registerRes: { state: "empty" } });
+          break;
+        }
+
+        case "success": {
+          const data = registerRes.data;
+
+          // Only log them in if a jwt was set
+          if (data.jwt) {
+            UserService.Instance.login(data);
+
+            const site = await HttpService.client.getSite({ auth: myAuth() });
+
+            if (site.state === "success") {
+              UserService.Instance.myUserInfo = site.data.my_user;
+            }
+
+            i.props.history.replace("/communities");
+          } else {
+            if (data.verify_email_sent) {
+              toast(I18NextService.i18n.t("verify_email_sent"));
+            }
+            if (data.registration_created) {
+              toast(I18NextService.i18n.t("registration_application_sent"));
+            }
+            i.props.history.push("/");
+          }
+          break;
+        }
+      }
     }
   }
 
   handleRegisterUsernameChange(i: Signup, event: any) {
-    i.state.form.username = event.target.value;
+    i.state.form.username = event.target.value.trim();
     i.setState(i.state);
   }
 
@@ -483,19 +532,20 @@ export class Signup extends Component<any, State> {
     i.setState(i.state);
   }
 
-  handleRegenCaptcha(i: Signup) {
+  async handleRegenCaptcha(i: Signup) {
     i.audio = undefined;
     i.setState({ captchaPlaying: false });
-    WebSocketService.Instance.send(wsClient.getCaptcha());
+    await i.fetchCaptcha();
   }
 
   handleCaptchaPlay(i: Signup) {
     // This was a bad bug, it should only build the new audio on a new file.
     // Replays would stop prematurely if this was rebuilt every time.
-    let captchaRes = i.state.captcha?.ok;
-    if (captchaRes) {
+
+    if (i.state.captchaRes.state == "success" && i.state.captchaRes.data.ok) {
+      const captchaRes = i.state.captchaRes.data.ok;
       if (!i.audio) {
-        let base64 = `data:audio/wav;base64,${captchaRes.wav}`;
+        const base64 = `data:audio/wav;base64,${captchaRes.wav}`;
         i.audio = new Audio(base64);
         i.audio.play();
 
@@ -513,46 +563,5 @@ export class Signup extends Component<any, State> {
 
   captchaPngSrc(captcha: CaptchaResponse) {
     return `data:image/png;base64,${captcha.png}`;
-  }
-
-  parseMessage(msg: any) {
-    let op = wsUserOp(msg);
-    console.log(msg);
-    if (msg.error) {
-      toast(i18n.t(msg.error), "danger");
-      this.setState(s => ((s.form.captcha_answer = undefined), s));
-      // Refetch another captcha
-      // WebSocketService.Instance.send(wsClient.getCaptcha());
-      return;
-    } else {
-      if (op == UserOperation.Register) {
-        let data = wsJsonToRes<LoginResponse>(msg);
-        // Only log them in if a jwt was set
-        if (data.jwt) {
-          UserService.Instance.login(data);
-          this.props.history.push("/communities");
-          location.reload();
-        } else {
-          if (data.verify_email_sent) {
-            toast(i18n.t("verify_email_sent"));
-          }
-          if (data.registration_created) {
-            toast(i18n.t("registration_application_sent"));
-          }
-          this.props.history.push("/");
-        }
-      } else if (op == UserOperation.GetCaptcha) {
-        let data = wsJsonToRes<GetCaptchaResponse>(msg);
-        if (data.ok) {
-          this.setState({ captcha: data });
-          this.setState(s => ((s.form.captcha_uuid = data.ok?.uuid), s));
-        }
-      } else if (op == UserOperation.PasswordReset) {
-        toast(i18n.t("reset_password_mail_sent"));
-      } else if (op == UserOperation.GetSite) {
-        let data = wsJsonToRes<GetSiteResponse>(msg);
-        this.setState({ siteRes: data });
-      }
-    }
   }
 }

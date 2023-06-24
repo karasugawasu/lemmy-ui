@@ -1,10 +1,11 @@
 const webpack = require("webpack");
+const path = require("path");
 const MiniCssExtractPlugin = require("mini-css-extract-plugin");
 const nodeExternals = require("webpack-node-externals");
 const CopyPlugin = require("copy-webpack-plugin");
 const RunNodeWebpackPlugin = require("run-node-webpack-plugin");
-const { merge } = require("lodash");
-
+const merge = require("lodash/merge");
+const { ServiceWorkerPlugin } = require("service-worker-webpack");
 const banner = `
   hash:[contentHash], chunkhash:[chunkhash], name:[name], filebase:[base], query:[query], file:[file]
   Source code: https://github.com/LemmyNet/lemmy-ui
@@ -20,6 +21,10 @@ const base = {
   },
   resolve: {
     extensions: [".js", ".jsx", ".ts", ".tsx"],
+    alias: {
+      "@": path.resolve(__dirname, "src/"),
+      "@utils": path.resolve(__dirname, "src/shared/utils/"),
+    },
   },
   performance: {
     hints: false,
@@ -69,10 +74,10 @@ const createServerConfig = (_env, mode) => {
   });
 
   if (mode === "development") {
-    config.cache = {
-      type: "filesystem",
-      name: "server",
-    };
+    // config.cache = {
+    //   type: "filesystem",
+    //   name: "server",
+    // };
 
     config.plugins.push(
       new RunNodeWebpackPlugin({
@@ -83,6 +88,7 @@ const createServerConfig = (_env, mode) => {
 
   return config;
 };
+
 const createClientConfig = (_env, mode) => {
   const config = merge({}, base, {
     mode,
@@ -90,13 +96,68 @@ const createClientConfig = (_env, mode) => {
     output: {
       filename: "js/client.js",
     },
+    plugins: [
+      ...base.plugins,
+      new ServiceWorkerPlugin({
+        enableInDevelopment: mode !== "development", // this may seem counterintuitive, but it is correct
+        workbox: {
+          modifyURLPrefix: {
+            "/": "/static/",
+          },
+          cacheId: "lemmy",
+          include: [/(assets|styles)\/.+\..+|client\.js$/g],
+          inlineWorkboxRuntime: true,
+          runtimeCaching: [
+            {
+              urlPattern: ({
+                sameOrigin,
+                url: { pathname, host },
+                request: { method },
+              }) =>
+                (sameOrigin || host.includes("localhost")) &&
+                (!(
+                  pathname.includes("pictrs") || pathname.includes("static")
+                ) ||
+                  method === "POST"),
+              handler: "NetworkFirst",
+              options: {
+                cacheName: "instance-cache",
+              },
+            },
+            {
+              urlPattern: ({ url: { pathname, host }, sameOrigin }) =>
+                (sameOrigin || host.includes("localhost")) &&
+                pathname.includes("static"),
+              handler: mode === "development" ? "NetworkFirst" : "CacheFirst",
+              options: {
+                cacheName: "static-cache",
+                expiration: {
+                  maxAgeSeconds: 60 * 60 * 24,
+                },
+              },
+            },
+            {
+              urlPattern: ({ url: { pathname }, request: { method } }) =>
+                pathname.includes("pictrs") && method === "GET",
+              handler: "StaleWhileRevalidate",
+              options: {
+                cacheName: "image-cache",
+                expiration: {
+                  maxAgeSeconds: 60 * 60 * 24,
+                },
+              },
+            },
+          ],
+        },
+      }),
+    ],
   });
 
   if (mode === "development") {
-    config.cache = {
-      type: "filesystem",
-      name: "client",
-    };
+    // config.cache = {
+    //   type: "filesystem",
+    //   name: "client",
+    // };
   }
 
   return config;

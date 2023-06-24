@@ -1,8 +1,7 @@
+import { randomStr } from "@utils/helpers";
 import { Component, linkEvent } from "inferno";
-import { pictrsUri } from "../../env";
-import { i18n } from "../../i18next";
-import { UserService } from "../../services";
-import { randomStr, toast } from "../../utils";
+import { HttpService, I18NextService, UserService } from "../../services";
+import { toast } from "../../toast";
 import { Icon } from "./icon";
 
 interface ImageUploadFormProps {
@@ -33,7 +32,7 @@ export class ImageUploadForm extends Component<
 
   render() {
     return (
-      <form className="d-inline">
+      <form className="image-upload-form d-inline">
         <label
           htmlFor={this.id}
           className="pointer text-muted small font-weight-bold"
@@ -50,7 +49,7 @@ export class ImageUploadForm extends Component<
               />
               <a
                 onClick={linkEvent(this, this.handleRemoveImage)}
-                aria-label={i18n.t("remove")}
+                aria-label={I18NextService.i18n.t("remove")}
               >
                 <Icon icon="x" classes="mini-overlay" />
               </a>
@@ -74,35 +73,26 @@ export class ImageUploadForm extends Component<
 
   handleImageUpload(i: ImageUploadForm, event: any) {
     event.preventDefault();
-    let file = event.target.files[0];
-    const formData = new FormData();
-    formData.append("images[]", file);
+    const image = event.target.files[0] as File;
 
     i.setState({ loading: true });
 
-    fetch(pictrsUri, {
-      method: "POST",
-      body: formData,
-    })
-      .then(res => res.json())
-      .then(res => {
-        console.log("pictrs upload:");
-        console.log(res);
-        if (res.msg == "ok") {
-          let hash = res.files[0].file;
-          let url = `${pictrsUri}/${hash}`;
-          i.setState({ loading: false });
-          i.props.onUpload(url);
+    HttpService.client.uploadImage({ image }).then(res => {
+      console.log("pictrs upload:");
+      console.log(res);
+      if (res.state === "success") {
+        if (res.data.msg === "ok") {
+          i.props.onUpload(res.data.url as string);
         } else {
-          i.setState({ loading: false });
           toast(JSON.stringify(res), "danger");
         }
-      })
-      .catch(error => {
-        i.setState({ loading: false });
-        console.error(error);
-        toast(error, "danger");
-      });
+      } else if (res.state === "failed") {
+        console.error(res.msg);
+        toast(res.msg, "danger");
+      }
+
+      i.setState({ loading: false });
+    });
   }
 
   handleRemoveImage(i: ImageUploadForm, event: any) {

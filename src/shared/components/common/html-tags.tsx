@@ -1,8 +1,9 @@
+import { httpExternalPath } from "@utils/env";
 import { htmlToText } from "html-to-text";
 import { Component } from "inferno";
 import { Helmet } from "inferno-helmet";
-import { httpExternalPath } from "../../env";
-import { md } from "../../utils";
+import { md } from "../../markdown";
+import { I18NextService } from "../../services";
 
 interface HtmlTagsProps {
   title: string;
@@ -14,12 +15,14 @@ interface HtmlTagsProps {
 /// Taken from https://metatags.io/
 export class HtmlTags extends Component<HtmlTagsProps, any> {
   render() {
-    let url = httpExternalPath(this.props.path);
-    let desc = this.props.description;
-    let image = this.props.image;
+    const url = httpExternalPath(this.props.path);
+    const desc = this.props.description;
+    const image = this.props.image;
 
     return (
       <Helmet title={this.props.title}>
+        <html lang={I18NextService.i18n.resolvedLanguage} />
+
         {["title", "og:title", "twitter:title"].map(t => (
           <meta key={t} property={t} content={this.props.title} />
         ))}

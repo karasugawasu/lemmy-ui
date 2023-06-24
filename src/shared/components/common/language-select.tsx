@@ -1,20 +1,22 @@
+import { selectableLanguages } from "@utils/app";
+import { randomStr } from "@utils/helpers";
 import classNames from "classnames";
 import { Component, linkEvent } from "inferno";
 import { Language } from "lemmy-js-client";
-import { i18n } from "../../i18next";
-import { UserService } from "../../services/UserService";
-import { randomStr, selectableLanguages } from "../../utils";
+import { I18NextService, UserService } from "../../services";
 import { Icon } from "./icon";
 
 interface LanguageSelectProps {
   allLanguages: Language[];
   siteLanguages: number[];
   selectedLanguageIds?: number[];
-  multiple: boolean;
+  multiple?: boolean;
   onChange(val: number[]): any;
   showAll?: boolean;
   showSite?: boolean;
   iconVersion?: boolean;
+  disabled?: boolean;
+  showLanguageWarning?: boolean;
 }
 
 export class LanguageSelect extends Component<LanguageSelectProps, any> {
@@ -30,12 +32,12 @@ export class LanguageSelect extends Component<LanguageSelectProps, any> {
 
   // Necessary because there is no HTML way to set selected for multiple in value=
   setSelectedValues() {
-    let ids = this.props.selectedLanguageIds?.map(toString);
+    const ids = this.props.selectedLanguageIds?.map(toString);
     if (ids) {
-      let select = (document.getElementById(this.id) as HTMLSelectElement)
+      const select = (document.getElementById(this.id) as HTMLSelectElement)
         .options;
       for (let i = 0; i < select.length; i++) {
-        let o = select[i];
+        const o = select[i];
         if (ids.includes(o.value)) {
           o.selected = true;
         }
@@ -47,36 +49,37 @@ export class LanguageSelect extends Component<LanguageSelectProps, any> {
     return this.props.iconVersion ? (
       this.selectBtn
     ) : (
-      <div>
-        <div className="alert alert-warning" role="alert">
-          {i18n.t("undetermined_language_warning")}
-        </div>
-        <div className="form-group row">
+      <div className="language-select">
+        {this.props.multiple && this.props.showLanguageWarning && (
+          <div className="alert alert-warning" role="alert">
+            {I18NextService.i18n.t("undetermined_language_warning")}
+          </div>
+        )}
+        <div className="mb-3 row">
           <label
-            className={classNames("col-form-label", {
-              "col-sm-3": this.props.multiple,
-              "col-sm-2": !this.props.multiple,
-            })}
+            className={classNames(
+              "col-form-label",
+              `col-sm-${this.props.multiple ? 3 : 2}`
+            )}
             htmlFor={this.id}
           >
-            {i18n.t(this.props.multiple ? "language_plural" : "language")}
+            {I18NextService.i18n.t(
+              this.props.multiple ? "language_plural" : "language"
+            )}
           </label>
           <div
-            className={classNames("input-group", {
-              "col-sm-9": this.props.multiple,
-              "col-sm-10": !this.props.multiple,
+            className={classNames(`col-sm-${this.props.multiple ? 9 : 10}`, {
+              "input-group": this.props.multiple,
             })}
           >
             {this.selectBtn}
             {this.props.multiple && (
-              <div className="input-group-append">
-                <button
-                  className="input-group-text"
-                  onClick={linkEvent(this, this.handleDeselectAll)}
-                >
-                  <Icon icon="x" />
-                </button>
-              </div>
+              <button
+                className="btn btn-outline-secondary"
+                onClick={linkEvent(this, this.handleDeselectAll)}
+              >
+                <Icon icon="x" />
+              </button>
             )}
           </div>
         </div>
@@ -85,8 +88,8 @@ export class LanguageSelect extends Component<LanguageSelectProps, any> {
   }
 
   get selectBtn() {
-    let selectedLangs = this.props.selectedLanguageIds;
-    let filteredLangs = selectableLanguages(
+    const selectedLangs = this.props.selectedLanguageIds;
+    const filteredLangs = selectableLanguages(
       this.props.allLanguages,
       this.props.siteLanguages,
       this.props.showAll,
@@ -96,18 +99,18 @@ export class LanguageSelect extends Component<LanguageSelectProps, any> {
 
     return (
       <select
-        className={classNames("lang-select-action", {
-          "form-control custom-select": !this.props.iconVersion,
-          "btn btn-sm text-muted": this.props.iconVersion,
+        className={classNames("form-select w-auto", {
+          "d-inline-block": !this.props.iconVersion,
         })}
         id={this.id}
         onChange={linkEvent(this, this.handleLanguageChange)}
-        aria-label="action"
+        aria-label={I18NextService.i18n.t("language_select_placeholder")}
         multiple={this.props.multiple}
+        disabled={this.props.disabled}
       >
         {!this.props.multiple && (
           <option selected disabled hidden>
-            {i18n.t("language_select_placeholder")}
+            {I18NextService.i18n.t("language_select_placeholder")}
           </option>
         )}
         {filteredLangs.map(l => (
@@ -124,8 +127,8 @@ export class LanguageSelect extends Component<LanguageSelectProps, any> {
   }
 
   handleLanguageChange(i: LanguageSelect, event: any) {
-    let options: HTMLOptionElement[] = Array.from(event.target.options);
-    let selected: number[] = options
+    const options: HTMLOptionElement[] = Array.from(event.target.options);
+    const selected: number[] = options
       .filter(o => o.selected)
       .map(o => Number(o.value));
 

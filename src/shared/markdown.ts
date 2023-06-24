@@ -177,7 +177,8 @@ export function setupMarkdown() {
         );
         const matchedExt = fileName.match(/^(.+?)(\.[^.]+)?$/) ?? [];
         const [, name, ext] = matchedExt.map(match => match ?? "");
-        return `<a href="#figure-${name}">${imageTag}</a><figure id="figure-${name}"><a class="overlay" id="overlay-${name}" href="#overlay-${name}">${imageTag}</a></figure>`;
+        return `${imageTag}`;
+        //return `<a href="#figure-${name}">${imageTag}</a><figure id="figure-${name}"><a class="overlay" id="overlay-${name}" href="#overlay-${name}">${imageTag}</a></figure>`;
       };
     })
     .use(markdown_it_table_of_contents, {
@@ -197,12 +198,12 @@ export function setupMarkdown() {
         ) // Replace spaces with hyphens
           .replace(/\-+$/, ""); // Replace trailing hyphen
       },
-      permalink: markdown_it_anchor.permalink.linkInsideHeader({
-        symbol: `
-        <svg class="icon"><use xlink:href="/static/assets/symbols.svg#icon-link"></use></svg>
-        `,
-        placement: "before",
-      }),
+      //permalink: markdown_it_anchor.permalink.linkInsideHeader({
+      //  symbol: `
+      //  <svg class="icon"><use xlink:href="/static/assets/symbols.svg#icon-link"></use></svg>
+      //  `,
+      //  placement: "before",
+      //}),
     })
     .use(markdown_it_mathjax3)
     .use(taskLists)

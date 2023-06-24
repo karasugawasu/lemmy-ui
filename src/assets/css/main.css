@@ -535,7 +535,7 @@ br.big {
 
 .md-div img {
   max-height: 40vh;
-  max-width: 95%;
+  max-width: 100%;
   height: auto;
 }
 

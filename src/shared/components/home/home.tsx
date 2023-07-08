@@ -78,7 +78,12 @@ import {
   InitialFetchRequest,
 } from "../../interfaces";
 import { mdToHtml } from "../../markdown";
-import { FirstLoadService, I18NextService, UserService } from "../../services";
+import {
+  FirstLoadService,
+  HomeCacheService,
+  I18NextService,
+  UserService,
+} from "../../services";
 import { HttpService, RequestState } from "../../services/HttpService";
 import { setupTippy } from "../../tippy";
 import { toast } from "../../toast";
@@ -101,6 +106,7 @@ interface HomeState {
   showTrendingMobile: boolean;
   showSidebarMobile: boolean;
   subscribedCollapsed: boolean;
+  scrolled: boolean;
   tagline?: string;
   siteRes: GetSiteResponse;
   finished: Map<CommentId, boolean | undefined>;
@@ -108,7 +114,7 @@ interface HomeState {
 }
 
 interface HomeProps {
-  listingType: ListingType;
+  listingType?: ListingType;
   dataType: DataType;
   sort: SortType;
   page: number;
@@ -157,12 +163,12 @@ function getDataTypeFromQuery(type?: string): DataType {
   return type ? DataType[type] : DataType.Post;
 }
 
-function getListingTypeFromQuery(type?: string): ListingType {
+function getListingTypeFromQuery(type?: string): ListingType | undefined {
   const myListingType =
     UserService.Instance.myUserInfo?.local_user_view?.local_user
       ?.default_listing_type;
 
-  return (type ? (type as ListingType) : myListingType) ?? "Local";
+  return type ? (type as ListingType) : myListingType;
 }
 
 function getSortTypeFromQuery(type?: string): SortType {
@@ -217,6 +223,7 @@ export class Home extends Component<any, HomeState> {
     postsRes: { state: "empty" },
     commentsRes: { state: "empty" },
     trendingCommunitiesRes: { state: "empty" },
+    scrolled: true,
     siteRes: this.isoData.site_res,
     showSubscribedMobile: false,
     showTrendingMobile: false,
@@ -272,11 +279,19 @@ export class Home extends Component<any, HomeState> {
         trendingCommunitiesRes,
         commentsRes,
         postsRes,
-        tagline: getRandomFromList(this.state?.siteRes?.taglines ?? [])
-          ?.content,
         isIsomorphic: true,
       };
+
+      HomeCacheService.postsRes = postsRes;
     }
+
+    this.state.tagline = getRandomFromList(
+      this.state?.siteRes?.taglines ?? []
+    )?.content;
+  }
+
+  componentWillUnmount() {
+    HomeCacheService.activate();
   }
 
   async componentDidMount() {
@@ -296,11 +311,12 @@ export class Home extends Component<any, HomeState> {
     client,
     auth,
     query: { dataType: urlDataType, listingType, page: urlPage, sort: urlSort },
+    site,
   }: InitialFetchRequest<QueryParams<HomeProps>>): Promise<HomeData> {
     const dataType = getDataTypeFromQuery(urlDataType);
-
-    // TODO figure out auth default_listingType, default_sort_type
-    const type_ = getListingTypeFromQuery(listingType);
+    const type_ =
+      getListingTypeFromQuery(listingType) ??
+      site.site_view.local_site.default_post_listing_type;
     const sort = getSortTypeFromQuery(urlSort);
 
     const page = urlPage ? Number(urlPage) : 1;
@@ -374,7 +390,7 @@ export class Home extends Component<any, HomeState> {
         />
         {site_setup && (
           <div className="row">
-            <main role="main" className="col-12 col-md-8">
+            <main role="main" className="col-12 col-md-8 col-lg-9">
               {tagline && (
                 <div
                   id="tagline"
@@ -384,7 +400,7 @@ export class Home extends Component<any, HomeState> {
               <div className="d-block d-md-none">{this.mobileView}</div>
               {this.posts}
             </main>
-            <aside className="d-none d-md-block col-md-4">
+            <aside className="d-none d-md-block col-md-4 col-lg-3">
               {this.mySidebar}
             </aside>
           </div>
@@ -620,6 +636,11 @@ export class Home extends Component<any, HomeState> {
       search: getQueryString(queryParams),
     });
 
+    if (!this.state.scrolled) {
+      this.setState({ scrolled: true });
+      setTimeout(() => window.scrollTo(0, 0), 0);
+    }
+
     await this.fetchData();
   }
 
@@ -643,6 +664,8 @@ export class Home extends Component<any, HomeState> {
 
     if (dataType === DataType.Post) {
       switch (this.state.postsRes?.state) {
+        case "empty":
+          return <div style="min-height: 20000px;"></div>;
         case "loading":
           return (
             <h5>
@@ -739,7 +762,10 @@ export class Home extends Component<any, HomeState> {
         </div>
         <div className="col-auto">
           <ListingTypeSelect
-            type_={listingType}
+            type_={
+              listingType ??
+              this.state.siteRes.site_view.local_site.default_post_listing_type
+            }
             showLocal={showLocal(this.isoData)}
             showSubscribed
             onChange={this.handleListingTypeChange}
@@ -748,7 +774,12 @@ export class Home extends Component<any, HomeState> {
         <div className="col-auto">
           <SortSelect sort={sort} onChange={this.handleSortChange} />
         </div>
-        <div className="col-auto ps-0">{getRss(listingType)}</div>
+        <div className="col-auto ps-0">
+          {getRss(
+            listingType ??
+              this.state.siteRes.site_view.local_site.default_post_listing_type
+          )}
+        </div>
       </div>
     );
   }
@@ -770,17 +801,30 @@ export class Home extends Component<any, HomeState> {
     const { dataType, page, listingType, sort } = getHomeQueryParams();
 
     if (dataType === DataType.Post) {
-      this.setState({ postsRes: { state: "loading" } });
-      this.setState({
-        postsRes: await HttpService.client.getPosts({
-          page,
-          limit: fetchLimit,
-          sort,
-          saved_only: false,
-          type_: listingType,
-          auth,
-        }),
-      });
+      if (HomeCacheService.active) {
+        const { postsRes, scrollY } = HomeCacheService;
+        HomeCacheService.deactivate();
+        this.setState({ postsRes });
+        window.scrollTo({
+          left: 0,
+          top: scrollY,
+          behavior: "instant",
+        });
+      } else {
+        this.setState({ postsRes: { state: "loading" } });
+        this.setState({
+          postsRes: await HttpService.client.getPosts({
+            page,
+            limit: fetchLimit,
+            sort,
+            saved_only: false,
+            type_: listingType,
+            auth,
+          }),
+        });
+
+        HomeCacheService.postsRes = this.state.postsRes;
+      }
     } else {
       this.setState({ commentsRes: { state: "loading" } });
       this.setState({
@@ -815,23 +859,23 @@ export class Home extends Component<any, HomeState> {
   }
 
   handlePageChange(page: number) {
+    this.setState({ scrolled: false });
     this.updateUrl({ page });
-    window.scrollTo(0, 0);
   }
 
   handleSortChange(val: SortType) {
+    this.setState({ scrolled: false });
     this.updateUrl({ sort: val, page: 1 });
-    window.scrollTo(0, 0);
   }
 
   handleListingTypeChange(val: ListingType) {
+    this.setState({ scrolled: false });
     this.updateUrl({ listingType: val, page: 1 });
-    window.scrollTo(0, 0);
   }
 
   handleDataTypeChange(val: DataType) {
+    this.setState({ scrolled: false });
     this.updateUrl({ dataType: val, page: 1 });
-    window.scrollTo(0, 0);
   }
 
   async handleAddModToCommunity(form: AddModToCommunity) {

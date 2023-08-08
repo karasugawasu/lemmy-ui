@@ -11,7 +11,6 @@ import { customEmojisLookup } from "../../markdown";
 import { HttpService, I18NextService } from "../../services";
 import { pictrsDeleteToast, toast } from "../../toast";
 import { EmojiMart } from "../common/emoji-mart";
-import { HtmlTags } from "../common/html-tags";
 import { Icon, Spinner } from "../common/icon";
 import { Paginator } from "../common/paginator";
 
@@ -66,17 +65,9 @@ export class EmojiForm extends Component<EmojiFormProps, EmojiFormState> {
     this.handlePageChange = this.handlePageChange.bind(this);
     this.handleEmojiClick = this.handleEmojiClick.bind(this);
   }
-  get documentTitle(): string {
-    return I18NextService.i18n.t("custom_emojis");
-  }
-
   render() {
     return (
       <div className="home-emojis-form col-12">
-        <HtmlTags
-          title={this.documentTitle}
-          path={this.context.router.route.match.url}
-        />
         <h1 className="h4 mb-4">{I18NextService.i18n.t("custom_emojis")}</h1>
         {customEmojisLookup.size > 0 && (
           <div>
@@ -290,8 +281,8 @@ export class EmojiForm extends Component<EmojiFormProps, EmojiFormState> {
       cv.shortcode.length > 0;
     const noDuplicateShortCodes =
       this.state.customEmojis.filter(
-        x => x.shortcode == cv.shortcode && x.id != cv.id
-      ).length == 0;
+        x => x.shortcode === cv.shortcode && x.id !== cv.id
+      ).length === 0;
     return noEmptyFields && noDuplicateShortCodes && !cv.loading && cv.changed;
   }
 
@@ -308,7 +299,7 @@ export class EmojiForm extends Component<EmojiFormProps, EmojiFormState> {
     const view = customEmojisLookup.get(e.id);
     if (view) {
       const page = this.state.customEmojis.find(
-        x => x.id == view.custom_emoji.id
+        x => x.id === view.custom_emoji.id
       )?.page;
       if (page) {
         this.setState({ page: page });
@@ -420,7 +411,7 @@ export class EmojiForm extends Component<EmojiFormProps, EmojiFormState> {
     cv: CustomEmojiViewForm;
   }) {
     const pagedIndex = (d.i.state.page - 1) * d.i.itemsPerPage + d.index;
-    if (d.cv.id != 0) {
+    if (d.cv.id !== 0) {
       d.i.props.onDelete({
         id: d.cv.id,
         auth: myAuthRequired(),

@@ -13,7 +13,7 @@ fs.readdir(translationDir, (_err, files) => {
       let data = `export const ${lang} = {\n  translation: {`;
       for (const key in json) {
         if (key in json) {
-          const value = json[key].replace(/"/g, '\\"');
+          const value = json[key].replace(/"/g, '\\"').replace("\n", "\\n");
           data += `\n    ${key}: "${value}",`;
         }
       }

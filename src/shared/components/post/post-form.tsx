@@ -312,7 +312,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
   componentWillReceiveProps(
     nextProps: Readonly<{ children?: InfernoNode } & PostFormProps>
   ): void {
-    if (this.props != nextProps) {
+    if (this.props !== nextProps) {
       this.setState(
         s => (
           (s.form.community_id = getIdFromString(
@@ -447,6 +447,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
                 onAddModToCommunity={() => {}}
                 onAddAdmin={() => {}}
                 onTransferCommunity={() => {}}
+                onMarkPostAsRead={() => {}}
               />
             </>
           )}
@@ -581,8 +582,10 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
       case "loading":
         return <Spinner />;
       case "success": {
-        const suggestedTitle = this.state.metadataRes.data.metadata.title;
-
+        // Clean up the title of any extra whitespace and replace &nbsp; with a space
+        const suggestedTitle = this.state.metadataRes.data.metadata.title
+          ?.trim()
+          .replace(/\s+/g, " ");
         return (
           suggestedTitle && (
             <button
@@ -641,6 +644,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
                 onAddModToCommunity={() => {}}
                 onAddAdmin={() => {}}
                 onTransferCommunity={() => {}}
+                onMarkPostAsRead={() => {}}
               />
             </>
           )

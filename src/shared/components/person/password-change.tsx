@@ -68,6 +68,7 @@ export class PasswordChange extends Component<any, State> {
             onInput={linkEvent(this, this.handlePasswordChange)}
             showStrength
             label={I18NextService.i18n.t("new_password")}
+            isNew
           />
         </div>
         <div className="mb-3">
@@ -81,7 +82,7 @@ export class PasswordChange extends Component<any, State> {
         <div className="mb-3 row">
           <div className="col-sm-10">
             <button type="submit" className="btn btn-secondary">
-              {this.state.passwordChangeRes.state == "loading" ? (
+              {this.state.passwordChangeRes.state === "loading" ? (
                 <Spinner />
               ) : (
                 capitalizeFirstLetter(I18NextService.i18n.t("save"))

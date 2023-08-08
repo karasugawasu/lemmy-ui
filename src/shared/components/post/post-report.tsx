@@ -28,7 +28,7 @@ export class PostReport extends Component<PostReportProps, PostReportState> {
   componentWillReceiveProps(
     nextProps: Readonly<{ children?: InfernoNode } & PostReportProps>
   ): void {
-    if (this.props != nextProps) {
+    if (this.props !== nextProps) {
       this.setState({ loading: false });
     }
   }
@@ -87,6 +87,7 @@ export class PostReport extends Component<PostReportProps, PostReportState> {
           onAddModToCommunity={() => {}}
           onAddAdmin={() => {}}
           onTransferCommunity={() => {}}
+          onMarkPostAsRead={() => {}}
         />
         <div>
           {I18NextService.i18n.t("reporter")}:{" "}

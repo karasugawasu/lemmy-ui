@@ -63,6 +63,7 @@ import {
   LockPost,
   MarkCommentReplyAsRead,
   MarkPersonMentionAsRead,
+  MarkPostAsRead,
   PostResponse,
   PurgeComment,
   PurgeCommunity,
@@ -171,6 +172,7 @@ export class Post extends Component<any, PostState> {
     this.handleSavePost = this.handleSavePost.bind(this);
     this.handlePurgePost = this.handlePurgePost.bind(this);
     this.handleFeaturePost = this.handleFeaturePost.bind(this);
+    this.handleMarkPostAsRead = this.handleMarkPostAsRead.bind(this);
 
     this.state = { ...this.state, commentSectionRef: createRef() };
 
@@ -309,7 +311,7 @@ export class Post extends Component<any, PostState> {
     const wrappedElement = document.getElementsByClassName("comments")[0];
     if (wrappedElement && this.isBottom(wrappedElement)) {
       const commentCount =
-        this.state.commentsRes.state == "success"
+        this.state.commentsRes.state === "success"
           ? this.state.commentsRes.data.comments.length
           : 0;
 
@@ -323,13 +325,13 @@ export class Post extends Component<any, PostState> {
 
   get documentTitle(): string {
     const siteName = this.state.siteRes.site_view.site.name;
-    return this.state.postRes.state == "success"
+    return this.state.postRes.state === "success"
       ? `${this.state.postRes.data.post_view.post.name} - ${siteName}`
       : siteName;
   }
 
   get imageTag(): string | undefined {
-    if (this.state.postRes.state == "success") {
+    if (this.state.postRes.state === "success") {
       const post = this.state.postRes.data.post_view.post;
       const thumbnail = post.thumbnail_url;
       const url = post.url;
@@ -384,17 +386,22 @@ export class Post extends Component<any, PostState> {
                 onAddAdmin={this.handleAddAdmin}
                 onTransferCommunity={this.handleTransferCommunity}
                 onFeaturePost={this.handleFeaturePost}
+                onMarkPostAsRead={this.handleMarkPostAsRead}
               />
               <div ref={this.state.commentSectionRef} className="mb-2" />
-              <CommentForm
-                node={res.post_view.post.id}
-                disabled={res.post_view.post.locked}
-                allLanguages={this.state.siteRes.all_languages}
-                siteLanguages={this.state.siteRes.discussion_languages}
-                containerClass="post-comment-container"
-                onUpsertComment={this.handleCreateComment}
-                finished={this.state.finished.get(0)}
-              />
+
+              {/* Only show the top level comment form if its not a context view */}
+              {!this.state.commentId && (
+                <CommentForm
+                  node={res.post_view.post.id}
+                  disabled={res.post_view.post.locked}
+                  allLanguages={this.state.siteRes.all_languages}
+                  siteLanguages={this.state.siteRes.discussion_languages}
+                  containerClass="post-comment-container"
+                  onUpsertComment={this.handleCreateComment}
+                  finished={this.state.finished.get(0)}
+                />
+              )}
               <div className="d-block d-md-none">
                 <button
                   className="btn btn-secondary d-inline-block mb-2 me-3"
@@ -413,9 +420,9 @@ export class Post extends Component<any, PostState> {
                 {this.state.showSidebarMobile && this.sidebar()}
               </div>
               {this.sortRadios()}
-              {this.state.commentViewType == CommentViewType.Tree &&
+              {this.state.commentViewType === CommentViewType.Tree &&
                 this.commentsTree()}
-              {this.state.commentViewType == CommentViewType.Flat &&
+              {this.state.commentViewType === CommentViewType.Flat &&
                 this.commentsFlat()}
             </main>
             <aside className="d-none d-md-block col-md-4 col-lg-3">
@@ -535,7 +542,7 @@ export class Post extends Component<any, PostState> {
     const commentsRes = this.state.commentsRes;
     const postRes = this.state.postRes;
 
-    if (commentsRes.state == "success" && postRes.state == "success") {
+    if (commentsRes.state === "success" && postRes.state === "success") {
       return (
         <div>
           <CommentNodes
@@ -607,7 +614,7 @@ export class Post extends Component<any, PostState> {
     const showContextButton = depth ? depth > 0 : false;
 
     return (
-      res.state == "success" && (
+      res.state === "success" && (
         <div>
           {!!this.state.commentId && (
             <>
@@ -664,7 +671,7 @@ export class Post extends Component<any, PostState> {
   }
 
   commentTree(): CommentNodeI[] {
-    if (this.state.commentsRes.state == "success") {
+    if (this.state.commentsRes.state === "success") {
       return buildCommentsTree(
         this.state.commentsRes.data.comments,
         !!this.state.commentId
@@ -696,14 +703,14 @@ export class Post extends Component<any, PostState> {
   }
 
   handleViewPost(i: Post) {
-    if (i.state.postRes.state == "success") {
+    if (i.state.postRes.state === "success") {
       const id = i.state.postRes.data.post_view.post.id;
       i.context.router.history.push(`/post/${id}`);
     }
   }
 
   handleViewContext(i: Post) {
-    if (i.state.commentsRes.state == "success") {
+    if (i.state.commentsRes.state === "success") {
       const parentId = getCommentParentId(
         i.state.commentsRes.data.comments.at(0)?.comment
       );
@@ -732,7 +739,7 @@ export class Post extends Component<any, PostState> {
       const communityId = followCommunityRes.data.community_view.community.id;
       const mui = UserService.Instance.myUserInfo;
       if (mui) {
-        mui.follows = mui.follows.filter(i => i.community.id != communityId);
+        mui.follows = mui.follows.filter(i => i.community.id !== communityId);
       }
     }
   }
@@ -759,10 +766,10 @@ export class Post extends Component<any, PostState> {
 
   async handleBlockCommunity(form: BlockCommunity) {
     const blockCommunityRes = await HttpService.client.blockCommunity(form);
-    if (blockCommunityRes.state == "success") {
+    if (blockCommunityRes.state === "success") {
       updateCommunityBlock(blockCommunityRes.data);
       this.setState(s => {
-        if (s.postRes.state == "success") {
+        if (s.postRes.state === "success") {
           s.postRes.data.community_view.blocked =
             blockCommunityRes.data.blocked;
         }
@@ -772,7 +779,7 @@ export class Post extends Component<any, PostState> {
 
   async handleBlockPerson(form: BlockPerson) {
     const blockPersonRes = await HttpService.client.blockPerson(form);
-    if (blockPersonRes.state == "success") {
+    if (blockPersonRes.state === "success") {
       updatePersonBlock(blockPersonRes.data);
     }
   }
@@ -855,14 +862,14 @@ export class Post extends Component<any, PostState> {
 
   async handleCommentReport(form: CreateCommentReport) {
     const reportRes = await HttpService.client.createCommentReport(form);
-    if (reportRes.state == "success") {
+    if (reportRes.state === "success") {
       toast(I18NextService.i18n.t("report_created"));
     }
   }
 
   async handlePostReport(form: CreatePostReport) {
     const reportRes = await HttpService.client.createPostReport(form);
-    if (reportRes.state == "success") {
+    if (reportRes.state === "success") {
       toast(I18NextService.i18n.t("report_created"));
     }
   }
@@ -895,8 +902,8 @@ export class Post extends Component<any, PostState> {
   async handleFetchChildren(form: GetComments) {
     const moreCommentsRes = await HttpService.client.getComments(form);
     if (
-      this.state.commentsRes.state == "success" &&
-      moreCommentsRes.state == "success"
+      this.state.commentsRes.state === "success" &&
+      moreCommentsRes.state === "success"
     ) {
       const newComments = moreCommentsRes.data.comments;
       // Remove the first comment, since it is the parent
@@ -917,6 +924,11 @@ export class Post extends Component<any, PostState> {
     await HttpService.client.markPersonMentionAsRead(form);
   }
 
+  async handleMarkPostAsRead(form: MarkPostAsRead) {
+    const res = await HttpService.client.markPostAsRead(form);
+    this.updatePost(res);
+  }
+
   async handleBanFromCommunity(form: BanFromCommunity) {
     const banRes = await HttpService.client.banFromCommunity(form);
     this.updateBan(banRes);
@@ -929,19 +941,19 @@ export class Post extends Component<any, PostState> {
 
   updateBanFromCommunity(banRes: RequestState<BanFromCommunityResponse>) {
     // Maybe not necessary
-    if (banRes.state == "success") {
+    if (banRes.state === "success") {
       this.setState(s => {
         if (
-          s.postRes.state == "success" &&
-          s.postRes.data.post_view.creator.id ==
+          s.postRes.state === "success" &&
+          s.postRes.data.post_view.creator.id ===
             banRes.data.person_view.person.id
         ) {
           s.postRes.data.post_view.creator_banned_from_community =
             banRes.data.banned;
         }
-        if (s.commentsRes.state == "success") {
+        if (s.commentsRes.state === "success") {
           s.commentsRes.data.comments
-            .filter(c => c.creator.id == banRes.data.person_view.person.id)
+            .filter(c => c.creator.id === banRes.data.person_view.person.id)
             .forEach(
               c => (c.creator_banned_from_community = banRes.data.banned)
             );
@@ -953,18 +965,18 @@ export class Post extends Component<any, PostState> {
 
   updateBan(banRes: RequestState<BanPersonResponse>) {
     // Maybe not necessary
-    if (banRes.state == "success") {
+    if (banRes.state === "success") {
       this.setState(s => {
         if (
-          s.postRes.state == "success" &&
-          s.postRes.data.post_view.creator.id ==
+          s.postRes.state === "success" &&
+          s.postRes.data.post_view.creator.id ===
             banRes.data.person_view.person.id
         ) {
           s.postRes.data.post_view.creator.banned = banRes.data.banned;
         }
-        if (s.commentsRes.state == "success") {
+        if (s.commentsRes.state === "success") {
           s.commentsRes.data.comments
-            .filter(c => c.creator.id == banRes.data.person_view.person.id)
+            .filter(c => c.creator.id === banRes.data.person_view.person.id)
             .forEach(c => (c.creator.banned = banRes.data.banned));
         }
         return s;
@@ -974,7 +986,7 @@ export class Post extends Component<any, PostState> {
 
   updateCommunity(communityRes: RequestState<CommunityResponse>) {
     this.setState(s => {
-      if (s.postRes.state == "success" && communityRes.state == "success") {
+      if (s.postRes.state === "success" && communityRes.state === "success") {
         s.postRes.data.community_view = communityRes.data.community_view;
       }
       return s;
@@ -983,7 +995,7 @@ export class Post extends Component<any, PostState> {
 
   updateCommunityFull(res: RequestState<GetCommunityResponse>) {
     this.setState(s => {
-      if (s.postRes.state == "success" && res.state == "success") {
+      if (s.postRes.state === "success" && res.state === "success") {
         s.postRes.data.community_view = res.data.community_view;
         s.postRes.data.moderators = res.data.moderators;
       }
@@ -993,7 +1005,7 @@ export class Post extends Component<any, PostState> {
 
   updatePost(post: RequestState<PostResponse>) {
     this.setState(s => {
-      if (s.postRes.state == "success" && post.state == "success") {
+      if (s.postRes.state === "success" && post.state === "success") {
         s.postRes.data.post_view = post.data.post_view;
       }
       return s;
@@ -1001,7 +1013,7 @@ export class Post extends Component<any, PostState> {
   }
 
   purgeItem(purgeRes: RequestState<PurgeItemResponse>) {
-    if (purgeRes.state == "success") {
+    if (purgeRes.state === "success") {
       toast(I18NextService.i18n.t("purge_success"));
       this.context.router.history.push(`/`);
     }
@@ -1010,13 +1022,21 @@ export class Post extends Component<any, PostState> {
   createAndUpdateComments(res: RequestState<CommentResponse>) {
     this.setState(s => {
       if (s.commentsRes.state === "success" && res.state === "success") {
-        s.commentsRes.data.comments.unshift(res.data.comment_view);
+        // The comment must be inserted not at the very beginning of the list,
+        // because the buildCommentsTree needs a correct path ordering.
+        // It should be inserted right after its parent is found
+        const comments = s.commentsRes.data.comments;
+        const newComment = res.data.comment_view;
+        const newCommentParentId = getCommentParentId(newComment.comment);
+
+        const foundCommentParentIndex = comments.findIndex(
+          c => c.comment.id === newCommentParentId
+        );
+
+        comments.splice(foundCommentParentIndex + 1, 0, newComment);
 
         // Set finished for the parent
-        s.finished.set(
-          getCommentParentId(res.data.comment_view.comment) ?? 0,
-          true
-        );
+        s.finished.set(newCommentParentId ?? 0, true);
       }
       return s;
     });
@@ -1024,7 +1044,7 @@ export class Post extends Component<any, PostState> {
 
   findAndUpdateComment(res: RequestState<CommentResponse>) {
     this.setState(s => {
-      if (s.commentsRes.state == "success" && res.state == "success") {
+      if (s.commentsRes.state === "success" && res.state === "success") {
         s.commentsRes.data.comments = editComment(
           res.data.comment_view,
           s.commentsRes.data.comments
@@ -1037,7 +1057,7 @@ export class Post extends Component<any, PostState> {
 
   findAndUpdateCommentReply(res: RequestState<CommentReplyResponse>) {
     this.setState(s => {
-      if (s.commentsRes.state == "success" && res.state == "success") {
+      if (s.commentsRes.state === "success" && res.state === "success") {
         s.commentsRes.data.comments = editWith(
           res.data.comment_reply_view,
           s.commentsRes.data.comments
@@ -1050,7 +1070,7 @@ export class Post extends Component<any, PostState> {
   updateModerators(res: RequestState<AddModToCommunityResponse>) {
     // Update the moderators
     this.setState(s => {
-      if (s.postRes.state == "success" && res.state == "success") {
+      if (s.postRes.state === "success" && res.state === "success") {
         s.postRes.data.moderators = res.data.moderators;
       }
       return s;

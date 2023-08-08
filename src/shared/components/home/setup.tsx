@@ -128,6 +128,7 @@ export class Setup extends Component<any, State> {
             value={this.state.form.password}
             onInput={linkEvent(this, this.handleRegisterPasswordChange)}
             label={I18NextService.i18n.t("password")}
+            isNew
           />
         </div>
         <div className="mb-3">
@@ -136,12 +137,13 @@ export class Setup extends Component<any, State> {
             value={this.state.form.password_verify}
             onInput={linkEvent(this, this.handleRegisterPasswordVerifyChange)}
             label={I18NextService.i18n.t("verify_password")}
+            isNew
           />
         </div>
         <div className="mb-3 row">
           <div className="col-sm-10">
             <button type="submit" className="btn btn-secondary">
-              {this.state.registerRes.state == "loading" ? (
+              {this.state.registerRes.state === "loading" ? (
                 <Spinner />
               ) : (
                 I18NextService.i18n.t("sign_up")
@@ -184,7 +186,7 @@ export class Setup extends Component<any, State> {
         registerRes: await HttpService.client.register(form),
       });
 
-      if (i.state.registerRes.state == "success") {
+      if (i.state.registerRes.state === "success") {
         const data = i.state.registerRes.data;
 
         UserService.Instance.login({ res: data });

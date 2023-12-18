@@ -1,9 +1,4 @@
-import {
-  communityToChoice,
-  fetchCommunities,
-  myAuth,
-  myAuthRequired,
-} from "@utils/app";
+import { communityToChoice, fetchCommunities } from "@utils/app";
 import {
   capitalizeFirstLetter,
   debounce,
@@ -34,7 +29,12 @@ import {
 } from "../../config";
 import { PostFormParams } from "../../interfaces";
 import { I18NextService, UserService } from "../../services";
-import { HttpService, RequestState } from "../../services/HttpService";
+import {
+  EMPTY_REQUEST,
+  HttpService,
+  LOADING_REQUEST,
+  RequestState,
+} from "../../services/HttpService";
 import { setupTippy } from "../../tippy";
 import { toast } from "../../toast";
 import { Icon, Spinner } from "../common/icon";
@@ -89,7 +89,6 @@ function handlePostSubmit(i: PostForm, event: any) {
     i.setState(s => ((s.form.url = undefined), s));
   }
   i.setState({ loading: true, submitted: true });
-  const auth = myAuthRequired();
 
   const pForm = i.state.form;
   const pv = i.props.post_view;
@@ -102,7 +101,6 @@ function handlePostSubmit(i: PostForm, event: any) {
       nsfw: pForm.nsfw,
       post_id: pv.post.id,
       language_id: pForm.language_id,
-      auth,
     });
   } else if (pForm.name && pForm.community_id) {
     i.props.onCreate?.({
@@ -113,7 +111,6 @@ function handlePostSubmit(i: PostForm, event: any) {
       nsfw: pForm.nsfw,
       language_id: pForm.language_id,
       honeypot: pForm.honeypot,
-      auth,
     });
   }
 }
@@ -122,9 +119,9 @@ function copySuggestedTitle(d: { i: PostForm; suggestedTitle?: string }) {
   const sTitle = d.suggestedTitle;
   if (sTitle) {
     d.i.setState(
-      s => ((s.form.name = sTitle?.substring(0, MAX_POST_TITLE_LENGTH)), s)
+      s => ((s.form.name = sTitle?.substring(0, MAX_POST_TITLE_LENGTH)), s),
     );
-    d.i.setState({ suggestedPostsRes: { state: "empty" } });
+    d.i.setState({ suggestedPostsRes: EMPTY_REQUEST });
     setTimeout(() => {
       const textarea: any = document.getElementById("post-title");
       autosize.update(textarea);
@@ -193,8 +190,8 @@ function handleImageUpload(i: PostForm, event: any) {
         toast(JSON.stringify(res), "danger");
       }
     } else if (res.state === "failed") {
-      console.error(res.msg);
-      toast(res.msg, "danger");
+      console.error(res.err.message);
+      toast(res.err.message, "danger");
       i.setState({ imageLoading: false });
     }
   });
@@ -223,8 +220,8 @@ function handleImageDelete(i: PostForm) {
 
 export class PostForm extends Component<PostFormProps, PostFormState> {
   state: PostFormState = {
-    suggestedPostsRes: { state: "empty" },
-    metadataRes: { state: "empty" },
+    suggestedPostsRes: EMPTY_REQUEST,
+    metadataRes: EMPTY_REQUEST,
     form: {},
     loading: false,
     imageLoading: false,
@@ -266,26 +263,16 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
           community_id: getIdFromString(selectedCommunityChoice.value),
         },
         communitySearchOptions: [selectedCommunityChoice].concat(
-          (
-            this.props.initialCommunities?.map(
-              ({ community: { id, title } }) => ({
-                label: title,
-                value: id.toString(),
-              })
-            ) ?? []
-          ).filter(option => option.value !== selectedCommunityChoice.value)
+          (this.props.initialCommunities?.map(communityToChoice) ?? []).filter(
+            option => option.value !== selectedCommunityChoice.value,
+          ),
         ),
       };
     } else {
       this.state = {
         ...this.state,
         communitySearchOptions:
-          this.props.initialCommunities?.map(
-            ({ community: { id, title } }) => ({
-              label: title,
-              value: id.toString(),
-            })
-          ) ?? [],
+          this.props.initialCommunities?.map(communityToChoice) ?? [],
       };
     }
 
@@ -310,16 +297,16 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
   }
 
   componentWillReceiveProps(
-    nextProps: Readonly<{ children?: InfernoNode } & PostFormProps>
+    nextProps: Readonly<{ children?: InfernoNode } & PostFormProps>,
   ): void {
     if (this.props !== nextProps) {
       this.setState(
         s => (
           (s.form.community_id = getIdFromString(
-            nextProps.selectedCommunityChoice?.value
+            nextProps.selectedCommunityChoice?.value,
           )),
           s
-        )
+        ),
       );
     }
   }
@@ -342,6 +329,32 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
             ) && !this.state.submitted
           }
         />
+        <div className="mb-3 row">
+          <label className="col-sm-2 col-form-label" htmlFor="post-title">
+            {I18NextService.i18n.t("title")}
+          </label>
+          <div className="col-sm-10">
+            <textarea
+              value={this.state.form.name}
+              id="post-title"
+              onInput={linkEvent(this, handlePostNameChange)}
+              className={`form-control ${
+                !validTitle(this.state.form.name) && "is-invalid"
+              }`}
+              required
+              rows={1}
+              minLength={3}
+              maxLength={MAX_POST_TITLE_LENGTH}
+            />
+            {!validTitle(this.state.form.name) && (
+              <div className="invalid-feedback">
+                {I18NextService.i18n.t("invalid_post_title")}
+              </div>
+            )}
+            {this.renderSuggestedPosts()}
+          </div>
+        </div>
+
         <div className="mb-3 row">
           <label className="col-sm-2 col-form-label" htmlFor="post-url">
             {I18NextService.i18n.t("url")}
@@ -367,7 +380,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
                 </a>
                 <a
                   href={`${ghostArchiveUrl}/search?term=${encodeURIComponent(
-                    url
+                    url,
                   )}`}
                   className="me-2 d-inline-block float-right text-muted small fw-bold"
                   rel={relTags}
@@ -376,7 +389,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
                 </a>
                 <a
                   href={`${archiveTodayUrl}/?run=1&url=${encodeURIComponent(
-                    url
+                    url,
                   )}`}
                   className="me-2 d-inline-block float-right text-muted small fw-bold"
                   rel={relTags}
@@ -431,52 +444,26 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
                 siteLanguages={this.props.siteLanguages}
                 viewOnly
                 // All of these are unused, since its view only
-                onPostEdit={() => {}}
-                onPostVote={() => {}}
-                onPostReport={() => {}}
-                onBlockPerson={() => {}}
-                onLockPost={() => {}}
-                onDeletePost={() => {}}
-                onRemovePost={() => {}}
-                onSavePost={() => {}}
-                onFeaturePost={() => {}}
-                onPurgePerson={() => {}}
-                onPurgePost={() => {}}
-                onBanPersonFromCommunity={() => {}}
-                onBanPerson={() => {}}
-                onAddModToCommunity={() => {}}
-                onAddAdmin={() => {}}
-                onTransferCommunity={() => {}}
-                onMarkPostAsRead={() => {}}
+                onPostEdit={async () => EMPTY_REQUEST}
+                onPostVote={async () => EMPTY_REQUEST}
+                onPostReport={async () => {}}
+                onBlockPerson={async () => {}}
+                onLockPost={async () => {}}
+                onDeletePost={async () => {}}
+                onRemovePost={async () => {}}
+                onSavePost={async () => {}}
+                onFeaturePost={async () => {}}
+                onPurgePerson={async () => {}}
+                onPurgePost={async () => {}}
+                onBanPersonFromCommunity={async () => {}}
+                onBanPerson={async () => {}}
+                onAddModToCommunity={async () => {}}
+                onAddAdmin={async () => {}}
+                onTransferCommunity={async () => {}}
+                onMarkPostAsRead={async () => {}}
               />
             </>
           )}
-        </div>
-
-        <div className="mb-3 row">
-          <label className="col-sm-2 col-form-label" htmlFor="post-title">
-            {I18NextService.i18n.t("title")}
-          </label>
-          <div className="col-sm-10">
-            <textarea
-              value={this.state.form.name}
-              id="post-title"
-              onInput={linkEvent(this, handlePostNameChange)}
-              className={`form-control ${
-                !validTitle(this.state.form.name) && "is-invalid"
-              }`}
-              required
-              rows={1}
-              minLength={3}
-              maxLength={MAX_POST_TITLE_LENGTH}
-            />
-            {!validTitle(this.state.form.name) && (
-              <div className="invalid-feedback">
-                {I18NextService.i18n.t("invalid_post_title")}
-              </div>
-            )}
-            {this.renderSuggestedPosts()}
-          </div>
         </div>
 
         <div className="mb-3 row">
@@ -593,7 +580,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
               className="mt-1 small border-0 bg-transparent p-0 d-block text-muted fw-bold pointer"
               onClick={linkEvent(
                 { i: this, suggestedTitle },
-                copySuggestedTitle
+                copySuggestedTitle,
               )}
             >
               {I18NextService.i18n.t("copy_suggested_title", { title: "" })}{" "}
@@ -628,23 +615,23 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
                 siteLanguages={this.props.siteLanguages}
                 viewOnly
                 // All of these are unused, since its view only
-                onPostEdit={() => {}}
-                onPostVote={() => {}}
-                onPostReport={() => {}}
-                onBlockPerson={() => {}}
-                onLockPost={() => {}}
-                onDeletePost={() => {}}
-                onRemovePost={() => {}}
-                onSavePost={() => {}}
-                onFeaturePost={() => {}}
-                onPurgePerson={() => {}}
-                onPurgePost={() => {}}
-                onBanPersonFromCommunity={() => {}}
-                onBanPerson={() => {}}
-                onAddModToCommunity={() => {}}
-                onAddAdmin={() => {}}
-                onTransferCommunity={() => {}}
-                onMarkPostAsRead={() => {}}
+                onPostEdit={async () => EMPTY_REQUEST}
+                onPostVote={async () => EMPTY_REQUEST}
+                onPostReport={async () => {}}
+                onBlockPerson={async () => {}}
+                onLockPost={async () => {}}
+                onDeletePost={async () => {}}
+                onRemovePost={async () => {}}
+                onSavePost={async () => {}}
+                onFeaturePost={async () => {}}
+                onPurgePerson={async () => {}}
+                onPurgePost={async () => {}}
+                onBanPersonFromCommunity={async () => {}}
+                onBanPerson={async () => {}}
+                onAddModToCommunity={async () => {}}
+                onAddAdmin={async () => {}}
+                onTransferCommunity={async () => {}}
+                onMarkPostAsRead={async () => {}}
               />
             </>
           )
@@ -656,7 +643,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
   async fetchPageTitle() {
     const url = this.state.form.url;
     if (url && validURL(url)) {
-      this.setState({ metadataRes: { state: "loading" } });
+      this.setState({ metadataRes: LOADING_REQUEST });
       this.setState({
         metadataRes: await HttpService.client.getSiteMetadata({ url }),
       });
@@ -666,7 +653,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
   async fetchSimilarPosts() {
     const q = this.state.form.name;
     if (q && q !== "") {
-      this.setState({ suggestedPostsRes: { state: "loading" } });
+      this.setState({ suggestedPostsRes: LOADING_REQUEST });
       this.setState({
         suggestedPostsRes: await HttpService.client.search({
           q,
@@ -676,7 +663,6 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
           community_id: this.state.form.community_id,
           page: 1,
           limit: trendingFetchLimit,
-          auth: myAuth(),
         }),
       });
     }

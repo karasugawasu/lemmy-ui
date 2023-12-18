@@ -8,11 +8,16 @@ import { CustomEmojiView } from "lemmy-js-client";
 import { default as MarkdownIt } from "markdown-it";
 import markdown_it_container from "markdown-it-container";
 // import markdown_it_emoji from "markdown-it-emoji/bare";
+import markdown_it_bidi from "markdown-it-bidi";
 import markdown_it_footnote from "markdown-it-footnote";
 import markdown_it_html5_embed from "markdown-it-html5-embed";
 import markdown_it_ruby from "markdown-it-ruby";
 import markdown_it_sub from "markdown-it-sub";
 import markdown_it_sup from "markdown-it-sup";
+import markdown_it_highlightjs from "markdown-it-highlightjs";
+import Renderer from "markdown-it/lib/renderer";
+import Token from "markdown-it/lib/token";
+import { instanceLinkRegex, relTags } from "./config";
 
 //tuika
 import { taskLists } from "@hedgedoc/markdown-it-plugins";
@@ -20,10 +25,6 @@ import markdown_it_anchor from "markdown-it-anchor";
 import markdown_it_mark from "markdown-it-mark";
 import markdown_it_mathjax3 from "markdown-it-mathjax3";
 import markdown_it_table_of_contents from "markdown-it-table-of-contents";
-
-import Renderer from "markdown-it/lib/renderer";
-import Token from "markdown-it/lib/token";
-import { instanceLinkRegex } from "./config";
 
 export let Tribute: any;
 
@@ -68,11 +69,11 @@ const spoilerConfig = {
   },
 
   render: (tokens: any, idx: any) => {
-    var m = tokens[idx].info.trim().match(/^spoiler\s+(.*)$/);
-
+    const m = tokens[idx].info.trim().match(/^spoiler\s+(.*)$/);
     if (tokens[idx].nesting === 1) {
       // opening tag
-      return `<details><summary> ${md.utils.escapeHtml(m[1])} </summary>\n`;
+      const summary = mdToHtmlInline(md.utils.escapeHtml(m[1])).__html;
+      return `<details><summary> ${summary} </summary>\n`;
     } else {
       // closing tag
       return "</details>\n";
@@ -118,7 +119,7 @@ function localInstanceLinkParser(md: MarkdownIt) {
               newTokens.push(textToken);
             }
 
-            let href;
+            let href: string;
             if (match[0].startsWith("!")) {
               href = "/c/" + match[0].substring(1);
             } else if (match[0].startsWith("/m/")) {
@@ -175,17 +176,17 @@ export function setupMarkdown() {
       const originalRule = md.renderer.rules.image;
       md.renderer.rules.image = function (tokens, idx, options, env, self) {
         const imageTag = originalRule(tokens, idx, options, env, self);
-        const token = tokens[idx];
-        const filepath = token.attrs[token.attrIndex("src")][1];
-        const matchedFileName =
-          filepath.match(
-            /^(?:[^:\/?#]+:)?(?:\/\/[^\/?#]*)?(?:([^?#]*\/)([^\/?#]*))?(\?[^#]*)?(?:#.*)?$/
-          ) ?? [];
-        const [, dir, fileName, query] = matchedFileName.map(
-          match => match ?? ""
-        );
-        const matchedExt = fileName.match(/^(.+?)(\.[^.]+)?$/) ?? [];
-        const [, name, ext] = matchedExt.map(match => match ?? "");
+        //const token = tokens[idx];
+        //const filepath = token.attrs[token.attrIndex("src")][1];
+        //const matchedFileName =
+        //  filepath.match(
+        //    /^(?:[^:\/?#]+:)?(?:\/\/[^\/?#]*)?(?:([^?#]*\/)([^\/?#]*))?(\?[^#]*)?(?:#.*)?$/
+        //  ) ?? [];
+        //const [, dir, fileName, query] = matchedFileName.map(
+        //  match => match ?? ""
+        //);
+        //const matchedExt = fileName.match(/^(.+?)(\.[^.]+)?$/) ?? [];
+        //const [, name, ext] = matchedExt.map(match => match ?? "");
         return `${imageTag}`;
         //return `<a href="#figure-${name}">${imageTag}</a><figure id="figure-${name}"><a class="overlay" id="overlay-${name}" href="#overlay-${name}">${imageTag}</a></figure>`;
       };
@@ -201,9 +202,9 @@ export function setupMarkdown() {
             .toLowerCase()
             .replace(
               /[\]\[\!\"\#\$\%\&\'\(\)\*\+\,\.\/\:\;\<\=\>\?\@\\\^\_\{\|\}\~]/g,
-              ""
+              "",
             )
-            .replace(/\s+/g, "-")
+            .replace(/\s+/g, "-"),
         ) // Replace spaces with hyphens
           .replace(/\-+$/, ""); // Replace trailing hyphen
       },
@@ -222,38 +223,56 @@ export function setupMarkdown() {
     .use(markdown_it_footnote)
     .use(markdown_it_html5_embed, html5EmbedConfig)
     .use(markdown_it_container, "spoiler", spoilerConfig)
+    .use(markdown_it_highlightjs, { inline: true })
     .use(markdown_it_ruby)
-    .use(localInstanceLinkParser);
+    .use(localInstanceLinkParser)
+    .use(markdown_it_bidi);
   // .use(markdown_it_emoji, {
   //   defs: emojiDefs,
   // });
 
   mdNoImages = new MarkdownIt(markdownItConfig)
+    .use(markdown_it_mathjax3)
+    .use(taskLists)
+    .use(markdown_it_mark)
     .use(markdown_it_sub)
     .use(markdown_it_sup)
     .use(markdown_it_footnote)
     .use(markdown_it_html5_embed, html5EmbedConfig)
     .use(markdown_it_container, "spoiler", spoilerConfig)
+    .use(markdown_it_highlightjs, { inline: true })
     .use(localInstanceLinkParser)
+    .use(markdown_it_bidi)
     // .use(markdown_it_emoji, {
     //   defs: emojiDefs,
     // })
     .disable("image");
-  const defaultRenderer = md.renderer.rules.image;
+  const defaultImageRenderer = md.renderer.rules.image;
   md.renderer.rules.image = function (
     tokens: Token[],
     idx: number,
     options: MarkdownIt.Options,
     env: any,
-    self: Renderer
+    self: Renderer,
   ) {
     //Provide custom renderer for our emojis to allow us to add a css class and force size dimensions on them.
     const item = tokens[idx] as any;
-    const title = item.attrs.length >= 3 ? item.attrs[2][1] : "";
+    let title = item.attrs.length >= 3 ? item.attrs[2][1] : "";
+    const splitTitle = title.split(/ (.*)/, 2);
+    const isEmoji = splitTitle[0] === "emoji";
+    if (isEmoji) {
+      title = splitTitle[1];
+    }
     const customEmoji = customEmojisLookup.get(title);
-    const isCustomEmoji = customEmoji !== undefined;
-    if (!isCustomEmoji) {
-      return defaultRenderer?.(tokens, idx, options, env, self) ?? "";
+    const isLocalEmoji = customEmoji !== undefined;
+    if (!isLocalEmoji) {
+      const imgElement =
+        defaultImageRenderer?.(tokens, idx, options, env, self) ?? "";
+      if (imgElement) {
+        return `<span class='${
+          isEmoji ? "icon icon-emoji" : ""
+        }'>${imgElement}</span>`;
+      } else return "";
     }
     return `<img class="icon icon-emoji" src="${
       customEmoji!.custom_emoji.image_url
@@ -264,12 +283,27 @@ export function setupMarkdown() {
   md.renderer.rules.table_open = function () {
     return '<table class="table">';
   };
+  const defaultLinkRenderer =
+    md.renderer.rules.link_open ||
+    function (tokens, idx, options, _env, self) {
+      return self.renderToken(tokens, idx, options);
+    };
+  md.renderer.rules.link_open = function (
+    tokens: Token[],
+    idx: number,
+    options: MarkdownIt.Options,
+    env: any,
+    self: Renderer,
+  ) {
+    tokens[idx].attrPush(["rel", relTags]);
+    return defaultLinkRenderer(tokens, idx, options, env, self);
+  };
 }
 
 export function setupEmojiDataModel(custom_emoji_views: CustomEmojiView[]) {
   const groupedEmojis = groupBy(
     custom_emoji_views,
-    x => x.custom_emoji.category
+    x => x.custom_emoji.category,
   );
   for (const [category, emojis] of Object.entries(groupedEmojis)) {
     customEmojis.push({
@@ -284,7 +318,7 @@ export function setupEmojiDataModel(custom_emoji_views: CustomEmojiView[]) {
     });
   }
   customEmojisLookup = new Map(
-    custom_emoji_views.map(view => [view.custom_emoji.shortcode, view])
+    custom_emoji_views.map(view => [view.custom_emoji.shortcode, view]),
   );
 }
 
@@ -296,7 +330,7 @@ export function updateEmojiDataModel(custom_emoji_view: CustomEmojiView) {
     skins: [{ src: custom_emoji_view.custom_emoji.image_url }],
   };
   const categoryIndex = customEmojis.findIndex(
-    x => x.id === custom_emoji_view.custom_emoji.category
+    x => x.id === custom_emoji_view.custom_emoji.category,
   );
   if (categoryIndex === -1) {
     customEmojis.push({
@@ -306,7 +340,7 @@ export function updateEmojiDataModel(custom_emoji_view: CustomEmojiView) {
     });
   } else {
     const emojiIndex = customEmojis[categoryIndex].emojis.findIndex(
-      x => x.id === custom_emoji_view.custom_emoji.shortcode
+      x => x.id === custom_emoji_view.custom_emoji.shortcode,
     );
     if (emojiIndex === -1) {
       customEmojis[categoryIndex].emojis.push(emoji);
@@ -316,7 +350,7 @@ export function updateEmojiDataModel(custom_emoji_view: CustomEmojiView) {
   }
   customEmojisLookup.set(
     custom_emoji_view.custom_emoji.shortcode,
-    custom_emoji_view
+    custom_emoji_view,
   );
 }
 
@@ -330,10 +364,10 @@ export function removeFromEmojiDataModel(id: number) {
   }
   if (!view) return;
   const categoryIndex = customEmojis.findIndex(
-    x => x.id === view?.custom_emoji.category
+    x => x.id === view?.custom_emoji.category,
   );
   const emojiIndex = customEmojis[categoryIndex].emojis.findIndex(
-    x => x.id === view?.custom_emoji.shortcode
+    x => x.id === view?.custom_emoji.shortcode,
   );
   customEmojis[categoryIndex].emojis = customEmojis[
     categoryIndex
@@ -344,7 +378,7 @@ export function removeFromEmojiDataModel(id: number) {
 
 export function getEmojiMart(
   onEmojiSelect: (e: any) => void,
-  customPickerOptions: any = {}
+  customPickerOptions: any = {},
 ) {
   const pickerOptions = {
     ...customPickerOptions,
@@ -368,12 +402,11 @@ export function setupTribute() {
           return `${item.original.val} ${shortName}`;
         },
         selectTemplate: (item: any) => {
-          const customEmoji = customEmojisLookup.get(
-            item.original.key
-          )?.custom_emoji;
+          const customEmoji = customEmojisLookup.get(item.original.key)
+            ?.custom_emoji;
           if (customEmoji === undefined) return `${item.original.val}`;
           else
-            return `![${customEmoji.alt_text}](${customEmoji.image_url} "${customEmoji.shortcode}")`;
+            return `![${customEmoji.alt_text}](${customEmoji.image_url} "emoji ${customEmoji.shortcode}")`;
         },
         values: Object.entries(emojiShortName)
           .map(e => {
@@ -383,7 +416,7 @@ export function setupTribute() {
             Array.from(customEmojisLookup.entries()).map(k => ({
               key: k[0],
               val: `<img class="icon icon-emoji" src="${k[1].custom_emoji.image_url}" title="${k[1].custom_emoji.shortcode}" alt="${k[1].custom_emoji.alt_text}" />`,
-            }))
+            })),
           ),
         allowSpaces: false,
         autocompleteMode: true,

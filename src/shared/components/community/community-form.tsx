@@ -1,4 +1,3 @@
-import { myAuthRequired } from "@utils/app";
 import { capitalizeFirstLetter, randomStr } from "@utils/helpers";
 import { Component, linkEvent } from "inferno";
 import { Prompt } from "inferno-router";
@@ -231,7 +230,7 @@ export class CommunityForm extends Component<
                 checked={this.state.form.posting_restricted_to_mods}
                 onChange={linkEvent(
                   this,
-                  this.handleCommunityPostingRestrictedToMods
+                  this.handleCommunityPostingRestrictedToMods,
                 )}
               />
             </div>
@@ -279,7 +278,6 @@ export class CommunityForm extends Component<
     event.preventDefault();
     i.setState({ submitted: true });
     const cForm = i.state.form;
-    const auth = myAuthRequired();
 
     const cv = i.props.community_view;
 
@@ -293,7 +291,6 @@ export class CommunityForm extends Component<
         nsfw: cForm.nsfw,
         posting_restricted_to_mods: cForm.posting_restricted_to_mods,
         discussion_languages: cForm.discussion_languages,
-        auth,
       });
     } else {
       if (cForm.title && cForm.name) {
@@ -306,7 +303,6 @@ export class CommunityForm extends Component<
           nsfw: cForm.nsfw,
           posting_restricted_to_mods: cForm.posting_restricted_to_mods,
           discussion_languages: cForm.discussion_languages,
-          auth,
         });
       }
     }
@@ -330,7 +326,7 @@ export class CommunityForm extends Component<
 
   handleCommunityPostingRestrictedToMods(i: CommunityForm, event: any) {
     i.setState(
-      s => ((s.form.posting_restricted_to_mods = event.target.checked), s)
+      s => ((s.form.posting_restricted_to_mods = event.target.checked), s),
     );
   }
 

@@ -7,7 +7,6 @@ import {
   enableDownvotes,
   getCommentParentId,
   myAuth,
-  myAuthRequired,
   setIsoData,
   updatePersonBlock,
 } from "@utils/app";
@@ -43,6 +42,7 @@ import {
   GetPersonMentionsResponse,
   GetRepliesResponse,
   GetSiteResponse,
+  LemmyHttp,
   MarkCommentReplyAsRead,
   MarkPersonMentionAsRead,
   MarkPrivateMessageAsRead,
@@ -53,17 +53,25 @@ import {
   PrivateMessageView,
   PrivateMessagesResponse,
   PurgeComment,
-  PurgeItemResponse,
   PurgePerson,
   PurgePost,
   RemoveComment,
   SaveComment,
+  SuccessResponse,
   TransferCommunity,
 } from "lemmy-js-client";
 import { fetchLimit, relTags } from "../../config";
 import { CommentViewType, InitialFetchRequest } from "../../interfaces";
 import { FirstLoadService, I18NextService, UserService } from "../../services";
-import { HttpService, RequestState } from "../../services/HttpService";
+import { UnreadCounterService } from "../../services";
+import {
+  EMPTY_REQUEST,
+  EmptyRequestState,
+  HttpService,
+  LOADING_REQUEST,
+  RequestState,
+  wrapClient,
+} from "../../services/HttpService";
 import { toast } from "../../toast";
 import { CommentNodes } from "../comment/comment-nodes";
 import { CommentSortSelect } from "../common/comment-sort-select";
@@ -71,6 +79,7 @@ import { HtmlTags } from "../common/html-tags";
 import { Icon, Spinner } from "../common/icon";
 import { Paginator } from "../common/paginator";
 import { PrivateMessage } from "../private_message/private-message";
+import { getHttpBaseInternal } from "../../utils/env";
 
 enum UnreadOrAll {
   Unread,
@@ -125,10 +134,10 @@ export class Inbox extends Component<any, InboxState> {
     sort: "New",
     page: 1,
     siteRes: this.isoData.site_res,
-    repliesRes: { state: "empty" },
-    mentionsRes: { state: "empty" },
-    messagesRes: { state: "empty" },
-    markAllAsReadRes: { state: "empty" },
+    repliesRes: EMPTY_REQUEST,
+    mentionsRes: EMPTY_REQUEST,
+    messagesRes: EMPTY_REQUEST,
+    markAllAsReadRes: EMPTY_REQUEST,
     finished: new Map(),
     isIsomorphic: false,
   };
@@ -188,7 +197,7 @@ export class Inbox extends Component<any, InboxState> {
     const mui = UserService.Instance.myUserInfo;
     return mui
       ? `@${mui.local_user_view.person.name} ${I18NextService.i18n.t(
-          "inbox"
+          "inbox",
         )} - ${this.state.siteRes.site_view.site.name}`
       : "";
   }
@@ -246,7 +255,7 @@ export class Inbox extends Component<any, InboxState> {
                   <Spinner />
                 ) : (
                   capitalizeFirstLetter(
-                    I18NextService.i18n.t("mark_all_as_read")
+                    I18NextService.i18n.t("mark_all_as_read"),
                   )
                 )}
               </button>
@@ -256,6 +265,7 @@ export class Inbox extends Component<any, InboxState> {
             <Paginator
               page={this.state.page}
               onChange={this.handlePageChange}
+              nextDisabled={false}
             />
           </div>
         </div>
@@ -455,12 +465,12 @@ export class Inbox extends Component<any, InboxState> {
     const messages: ReplyType[] =
       this.state.messagesRes.state === "success"
         ? this.state.messagesRes.data.private_messages.map(
-            this.messageToReplyType
+            this.messageToReplyType,
           )
         : [];
 
     return [...replies, ...mentions, ...messages].sort((a, b) =>
-      b.published.localeCompare(a.published)
+      b.published.localeCompare(a.published),
     );
   }
 
@@ -717,39 +727,44 @@ export class Inbox extends Component<any, InboxState> {
   }
 
   static async fetchInitialData({
-    client,
-    auth,
+    headers,
   }: InitialFetchRequest): Promise<InboxData> {
+    const client = wrapClient(
+      new LemmyHttp(getHttpBaseInternal(), { headers }),
+    );
     const sort: CommentSortType = "New";
-
-    return {
-      mentionsRes: auth
-        ? await client.getPersonMentions({
-            sort,
-            unread_only: true,
-            page: 1,
-            limit: fetchLimit,
-            auth,
-          })
-        : { state: "empty" },
-      messagesRes: auth
-        ? await client.getPrivateMessages({
-            unread_only: true,
-            page: 1,
-            limit: fetchLimit,
-            auth,
-          })
-        : { state: "empty" },
-      repliesRes: auth
-        ? await client.getReplies({
-            sort,
-            unread_only: true,
-            page: 1,
-            limit: fetchLimit,
-            auth,
-          })
-        : { state: "empty" },
+    const empty: EmptyRequestState = EMPTY_REQUEST;
+    let inboxData: InboxData = {
+      mentionsRes: empty,
+      messagesRes: empty,
+      repliesRes: empty,
     };
+
+    if (headers["Authorization"]) {
+      const [mentionsRes, messagesRes, repliesRes] = await Promise.all([
+        client.getPersonMentions({
+          sort,
+          unread_only: true,
+          page: 1,
+          limit: fetchLimit,
+        }),
+        client.getPrivateMessages({
+          unread_only: true,
+          page: 1,
+          limit: fetchLimit,
+        }),
+        client.getReplies({
+          sort,
+          unread_only: true,
+          page: 1,
+          limit: fetchLimit,
+        }),
+      ]);
+
+      inboxData = { mentionsRes, messagesRes, repliesRes };
+    }
+
+    return inboxData;
   }
 
   async refetch() {
@@ -757,39 +772,36 @@ export class Inbox extends Component<any, InboxState> {
     const unread_only = this.state.unreadOrAll === UnreadOrAll.Unread;
     const page = this.state.page;
     const limit = fetchLimit;
-    const auth = myAuthRequired();
 
-    this.setState({ repliesRes: { state: "loading" } });
+    this.setState({ repliesRes: LOADING_REQUEST });
     this.setState({
       repliesRes: await HttpService.client.getReplies({
         sort,
         unread_only,
         page,
         limit,
-        auth,
       }),
     });
 
-    this.setState({ mentionsRes: { state: "loading" } });
+    this.setState({ mentionsRes: LOADING_REQUEST });
     this.setState({
       mentionsRes: await HttpService.client.getPersonMentions({
         sort,
         unread_only,
         page,
         limit,
-        auth,
       }),
     });
 
-    this.setState({ messagesRes: { state: "loading" } });
+    this.setState({ messagesRes: LOADING_REQUEST });
     this.setState({
       messagesRes: await HttpService.client.getPrivateMessages({
         unread_only,
         page,
         limit,
-        auth,
       }),
     });
+    UnreadCounterService.Instance.updateInboxCounts();
   }
 
   async handleSortChange(val: CommentSortType) {
@@ -798,19 +810,17 @@ export class Inbox extends Component<any, InboxState> {
   }
 
   async handleMarkAllAsRead(i: Inbox) {
-    i.setState({ markAllAsReadRes: { state: "loading" } });
+    i.setState({ markAllAsReadRes: LOADING_REQUEST });
 
     i.setState({
-      markAllAsReadRes: await HttpService.client.markAllAsRead({
-        auth: myAuthRequired(),
-      }),
+      markAllAsReadRes: await HttpService.client.markAllAsRead(),
     });
 
     if (i.state.markAllAsReadRes.state === "success") {
       i.setState({
-        repliesRes: { state: "empty" },
-        mentionsRes: { state: "empty" },
-        messagesRes: { state: "empty" },
+        repliesRes: EMPTY_REQUEST,
+        mentionsRes: EMPTY_REQUEST,
+        messagesRes: EMPTY_REQUEST,
       });
     }
   }
@@ -860,7 +870,7 @@ export class Inbox extends Component<any, InboxState> {
       toast(I18NextService.i18n.t("edit"));
       this.findAndUpdateComment(res);
     } else if (res.state === "failed") {
-      toast(res.msg, "danger");
+      toast(res.err.message, "danger");
     }
 
     return res;
@@ -917,12 +927,20 @@ export class Inbox extends Component<any, InboxState> {
 
   async handleCommentReplyRead(form: MarkCommentReplyAsRead) {
     const res = await HttpService.client.markCommentReplyAsRead(form);
-    this.findAndUpdateCommentReply(res);
+    if (this.state.unreadOrAll === UnreadOrAll.All) {
+      this.findAndUpdateCommentReply(res);
+    } else {
+      await this.refetch();
+    }
   }
 
   async handlePersonMentionRead(form: MarkPersonMentionAsRead) {
     const res = await HttpService.client.markPersonMentionAsRead(form);
-    this.findAndUpdateMention(res);
+    if (this.state.unreadOrAll === UnreadOrAll.All) {
+      this.findAndUpdateMention(res);
+    } else {
+      await this.refetch();
+    }
   }
 
   async handleBanFromCommunity(form: BanFromCommunity) {
@@ -947,7 +965,11 @@ export class Inbox extends Component<any, InboxState> {
 
   async handleMarkMessageAsRead(form: MarkPrivateMessageAsRead) {
     const res = await HttpService.client.markPrivateMessageAsRead(form);
-    this.findAndUpdateMessage(res);
+    if (this.state.unreadOrAll === UnreadOrAll.All) {
+      this.findAndUpdateMessage(res);
+    } else {
+      await this.refetch();
+    }
   }
 
   async handleMessageReport(form: CreatePrivateMessageReport) {
@@ -960,7 +982,7 @@ export class Inbox extends Component<any, InboxState> {
     this.setState(s => {
       if (s.messagesRes.state === "success" && res.state === "success") {
         s.messagesRes.data.private_messages.unshift(
-          res.data.private_message_view
+          res.data.private_message_view,
         );
       }
 
@@ -973,7 +995,7 @@ export class Inbox extends Component<any, InboxState> {
       if (s.messagesRes.state === "success" && res.state === "success") {
         s.messagesRes.data.private_messages = editPrivateMessage(
           res.data.private_message_view,
-          s.messagesRes.data.private_messages
+          s.messagesRes.data.private_messages,
         );
       }
       return s;
@@ -988,14 +1010,14 @@ export class Inbox extends Component<any, InboxState> {
           s.repliesRes.data.replies
             .filter(c => c.creator.id === banRes.data.person_view.person.id)
             .forEach(
-              c => (c.creator_banned_from_community = banRes.data.banned)
+              c => (c.creator_banned_from_community = banRes.data.banned),
             );
         }
         if (s.mentionsRes.state === "success") {
           s.mentionsRes.data.mentions
             .filter(c => c.creator.id === banRes.data.person_view.person.id)
             .forEach(
-              c => (c.creator_banned_from_community = banRes.data.banned)
+              c => (c.creator_banned_from_community = banRes.data.banned),
             );
         }
         return s;
@@ -1022,7 +1044,7 @@ export class Inbox extends Component<any, InboxState> {
     }
   }
 
-  purgeItem(purgeRes: RequestState<PurgeItemResponse>) {
+  purgeItem(purgeRes: RequestState<SuccessResponse>) {
     if (purgeRes.state === "success") {
       toast(I18NextService.i18n.t("purge_success"));
       this.context.router.history.push(`/`);
@@ -1030,7 +1052,7 @@ export class Inbox extends Component<any, InboxState> {
   }
 
   reportToast(
-    res: RequestState<PrivateMessageReportResponse | CommentReportResponse>
+    res: RequestState<PrivateMessageReportResponse | CommentReportResponse>,
   ) {
     if (res.state === "success") {
       toast(I18NextService.i18n.t("report_created"));
@@ -1044,19 +1066,19 @@ export class Inbox extends Component<any, InboxState> {
         if (s.repliesRes.state === "success") {
           s.repliesRes.data.replies = editWith(
             res.data.comment_view,
-            s.repliesRes.data.replies
+            s.repliesRes.data.replies,
           );
         }
         if (s.mentionsRes.state === "success") {
           s.mentionsRes.data.mentions = editWith(
             res.data.comment_view,
-            s.mentionsRes.data.mentions
+            s.mentionsRes.data.mentions,
           );
         }
         // Set finished for the parent
         s.finished.set(
           getCommentParentId(res.data.comment_view.comment) ?? 0,
-          true
+          true,
         );
         return s;
       });
@@ -1068,7 +1090,7 @@ export class Inbox extends Component<any, InboxState> {
       if (s.repliesRes.state === "success" && res.state === "success") {
         s.repliesRes.data.replies = editCommentReply(
           res.data.comment_reply_view,
-          s.repliesRes.data.replies
+          s.repliesRes.data.replies,
         );
       }
       return s;
@@ -1080,7 +1102,7 @@ export class Inbox extends Component<any, InboxState> {
       if (s.mentionsRes.state === "success" && res.state === "success") {
         s.mentionsRes.data.mentions = editMention(
           res.data.person_mention_view,
-          s.mentionsRes.data.mentions
+          s.mentionsRes.data.mentions,
         );
       }
       return s;

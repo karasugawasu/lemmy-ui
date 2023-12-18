@@ -5,8 +5,6 @@ import {
   enableDownvotes,
   enableNsfw,
   getCommentParentId,
-  myAuth,
-  myAuthRequired,
   setIsoData,
   updatePersonBlock,
 } from "@utils/app";
@@ -20,7 +18,7 @@ import {
   numToSI,
   randomStr,
 } from "@utils/helpers";
-import { canMod, isAdmin, isBanned } from "@utils/roles";
+import { canMod, isBanned } from "@utils/roles";
 import type { QueryParams } from "@utils/types";
 import { RouteDataResponse } from "@utils/types";
 import classNames from "classnames";
@@ -57,14 +55,13 @@ import {
   GetPersonDetails,
   GetPersonDetailsResponse,
   GetSiteResponse,
+  LemmyHttp,
   LockPost,
   MarkCommentReplyAsRead,
   MarkPersonMentionAsRead,
-  MarkPostAsRead,
   PersonView,
   PostResponse,
   PurgeComment,
-  PurgeItemResponse,
   PurgePerson,
   PurgePost,
   RemoveComment,
@@ -72,13 +69,20 @@ import {
   SaveComment,
   SavePost,
   SortType,
+  SuccessResponse,
   TransferCommunity,
 } from "lemmy-js-client";
 import { fetchLimit, relTags } from "../../config";
 import { InitialFetchRequest, PersonDetailsView } from "../../interfaces";
 import { mdToHtml } from "../../markdown";
 import { FirstLoadService, I18NextService, UserService } from "../../services";
-import { HttpService, RequestState } from "../../services/HttpService";
+import {
+  EMPTY_REQUEST,
+  HttpService,
+  LOADING_REQUEST,
+  RequestState,
+  wrapClient,
+} from "../../services/HttpService";
 import { setupTippy } from "../../tippy";
 import { toast } from "../../toast";
 import { BannerIconHeader } from "../common/banner-icon-header";
@@ -90,6 +94,7 @@ import { UserBadges } from "../common/user-badges";
 import { CommunityLink } from "../community/community-link";
 import { PersonDetails } from "./person-details";
 import { PersonListing } from "./person-listing";
+import { getHttpBaseInternal } from "../../utils/env";
 
 type ProfileData = RouteDataResponse<{
   personResponse: GetPersonDetailsResponse;
@@ -133,7 +138,7 @@ function getViewFromProps(view?: string): PersonDetailsView {
 
 const getCommunitiesListing = (
   translationKey: NoOptionI18nKeys,
-  communityViews?: { community: Community }[]
+  communityViews?: { community: Community }[],
 ) =>
   communityViews &&
   communityViews.length > 0 && (
@@ -157,13 +162,23 @@ const Moderates = ({ moderates }: { moderates?: CommunityModeratorView[] }) =>
 const Follows = () =>
   getCommunitiesListing("subscribed", UserService.Instance.myUserInfo?.follows);
 
+function isPersonBlocked(personRes: RequestState<GetPersonDetailsResponse>) {
+  return (
+    (personRes.state === "success" &&
+      UserService.Instance.myUserInfo?.person_blocks.some(
+        ({ target: { id } }) => id === personRes.data.person_view.person.id,
+      )) ??
+    false
+  );
+}
+
 export class Profile extends Component<
   RouteComponentProps<{ username: string }>,
   ProfileState
 > {
   private isoData = setIsoData<ProfileData>(this.context);
   state: ProfileState = {
-    personRes: { state: "empty" },
+    personRes: EMPTY_REQUEST,
     personBlocked: false,
     siteRes: this.isoData.site_res,
     showBanDialog: false,
@@ -209,14 +224,15 @@ export class Profile extends Component<
     this.handlePurgePost = this.handlePurgePost.bind(this);
     this.handleFeaturePost = this.handleFeaturePost.bind(this);
     this.handleModBanSubmit = this.handleModBanSubmit.bind(this);
-    this.handleMarkPostAsRead = this.handleMarkPostAsRead.bind(this);
 
     // Only fetch the data if coming from another route
     if (FirstLoadService.isFirstLoad) {
+      const personRes = this.isoData.routeData.personResponse;
       this.state = {
         ...this.state,
-        personRes: this.isoData.routeData.personResponse,
+        personRes,
         isIsomorphic: true,
+        personBlocked: isPersonBlocked(personRes),
       };
     }
   }
@@ -235,19 +251,19 @@ export class Profile extends Component<
   async fetchUserData() {
     const { page, sort, view } = getProfileQueryParams();
 
-    this.setState({ personRes: { state: "loading" } });
+    this.setState({ personRes: LOADING_REQUEST });
+    const personRes = await HttpService.client.getPersonDetails({
+      username: this.props.match.params.username,
+      sort,
+      saved_only: view === PersonDetailsView.Saved,
+      page,
+      limit: fetchLimit,
+    });
     this.setState({
-      personRes: await HttpService.client.getPersonDetails({
-        username: this.props.match.params.username,
-        sort,
-        saved_only: view === PersonDetailsView.Saved,
-        page,
-        limit: fetchLimit,
-        auth: myAuth(),
-      }),
+      personRes,
+      personBlocked: isPersonBlocked(personRes),
     });
     restoreScrollPosition(this.context);
-    this.setPersonBlock();
   }
 
   get amCurrentUser() {
@@ -261,25 +277,14 @@ export class Profile extends Component<
     }
   }
 
-  setPersonBlock() {
-    const mui = UserService.Instance.myUserInfo;
-    const res = this.state.personRes;
-
-    if (mui && res.state === "success") {
-      this.setState({
-        personBlocked: mui.person_blocks.some(
-          ({ target: { id } }) => id === res.data.person_view.person.id
-        ),
-      });
-    }
-  }
-
   static async fetchInitialData({
-    client,
+    headers,
     path,
     query: { page, sort, view: urlView },
-    auth,
   }: InitialFetchRequest<QueryParams<ProfileProps>>): Promise<ProfileData> {
+    const client = wrapClient(
+      new LemmyHttp(getHttpBaseInternal(), { headers }),
+    );
     const pathSplit = path.split("/");
 
     const username = pathSplit[2];
@@ -291,7 +296,6 @@ export class Profile extends Component<
       saved_only: view === PersonDetailsView.Saved,
       page: getPageFromString(page),
       limit: fetchLimit,
-      auth,
     };
 
     return {
@@ -378,7 +382,7 @@ export class Profile extends Component<
                 onSavePost={this.handleSavePost}
                 onPurgePost={this.handlePurgePost}
                 onFeaturePost={this.handleFeaturePost}
-                onMarkPostAsRead={this.handleMarkPostAsRead}
+                onMarkPostAsRead={() => {}}
               />
             </div>
 
@@ -499,7 +503,7 @@ export class Profile extends Component<
                         classNames="ms-1"
                         isBanned={isBanned(pv.person)}
                         isDeleted={pv.person.deleted}
-                        isAdmin={pv.person.admin}
+                        isAdmin={pv.is_admin}
                         isBot={pv.person.bot_account}
                       />
                     </li>
@@ -533,7 +537,7 @@ export class Profile extends Component<
                         }
                         onClick={linkEvent(
                           pv.person.id,
-                          this.handleUnblockPerson
+                          this.handleUnblockPerson,
                         )}
                       >
                         {I18NextService.i18n.t("unblock_user")}
@@ -545,7 +549,7 @@ export class Profile extends Component<
                         }
                         onClick={linkEvent(
                           pv.person.id,
-                          this.handleBlockPerson
+                          this.handleBlockPerson,
                         )}
                       >
                         {I18NextService.i18n.t("block_user")}
@@ -555,7 +559,7 @@ export class Profile extends Component<
                 )}
 
                 {canMod(pv.person.id, undefined, admins) &&
-                  !isAdmin(pv.person.id, admins) &&
+                  !pv.is_admin &&
                   !showBanDialog &&
                   (!isBanned(pv.person) ? (
                     <button
@@ -782,7 +786,6 @@ export class Profile extends Component<
         remove_data: removeData,
         reason: banReason,
         expires: futureDaysToUnixTime(banExpireDays),
-        auth: myAuthRequired(),
       });
       // TODO
       this.updateBan(res);
@@ -794,10 +797,10 @@ export class Profile extends Component<
     const res = await HttpService.client.blockPerson({
       person_id: recipientId,
       block,
-      auth: myAuthRequired(),
     });
     if (res.state === "success") {
       updatePersonBlock(res.data);
+      this.setState({ personBlocked: res.data.blocked });
     }
   }
 
@@ -833,6 +836,7 @@ export class Profile extends Component<
     const blockPersonRes = await HttpService.client.blockPerson(form);
     if (blockPersonRes.state === "success") {
       updatePersonBlock(blockPersonRes.data);
+      this.setState({ personBlocked: blockPersonRes.data.blocked });
     }
   }
 
@@ -845,7 +849,7 @@ export class Profile extends Component<
 
   async handleEditComment(form: EditComment) {
     const editCommentRes = await HttpService.client.editComment(form);
-    this.findAndUpdateComment(editCommentRes);
+    this.findAndUpdateCommentEdit(editCommentRes);
 
     return editCommentRes;
   }
@@ -893,11 +897,13 @@ export class Profile extends Component<
   async handlePostVote(form: CreatePostLike) {
     const voteRes = await HttpService.client.likePost(form);
     this.findAndUpdatePost(voteRes);
+    return voteRes;
   }
 
   async handlePostEdit(form: EditPost) {
     const res = await HttpService.client.editPost(form);
     this.findAndUpdatePost(res);
+    return res;
   }
 
   async handleCommentReport(form: CreateCommentReport) {
@@ -947,11 +953,6 @@ export class Profile extends Component<
     await HttpService.client.markPersonMentionAsRead(form);
   }
 
-  async handleMarkPostAsRead(form: MarkPostAsRead) {
-    const res = await HttpService.client.markPostAsRead(form);
-    this.findAndUpdatePost(res);
-  }
-
   async handleBanFromCommunity(form: BanFromCommunity) {
     const banRes = await HttpService.client.banFromCommunity(form);
     this.updateBanFromCommunity(banRes);
@@ -970,13 +971,13 @@ export class Profile extends Component<
           s.personRes.data.posts
             .filter(c => c.creator.id === banRes.data.person_view.person.id)
             .forEach(
-              c => (c.creator_banned_from_community = banRes.data.banned)
+              c => (c.creator_banned_from_community = banRes.data.banned),
             );
 
           s.personRes.data.comments
             .filter(c => c.creator.id === banRes.data.person_view.person.id)
             .forEach(
-              c => (c.creator_banned_from_community = banRes.data.banned)
+              c => (c.creator_banned_from_community = banRes.data.banned),
             );
         }
         return s;
@@ -1002,11 +1003,24 @@ export class Profile extends Component<
     }
   }
 
-  purgeItem(purgeRes: RequestState<PurgeItemResponse>) {
+  purgeItem(purgeRes: RequestState<SuccessResponse>) {
     if (purgeRes.state === "success") {
       toast(I18NextService.i18n.t("purge_success"));
       this.context.router.history.push(`/`);
     }
+  }
+
+  findAndUpdateCommentEdit(res: RequestState<CommentResponse>) {
+    this.setState(s => {
+      if (s.personRes.state === "success" && res.state === "success") {
+        s.personRes.data.comments = editComment(
+          res.data.comment_view,
+          s.personRes.data.comments,
+        );
+        s.finished.set(res.data.comment_view.comment.id, true);
+      }
+      return s;
+    });
   }
 
   findAndUpdateComment(res: RequestState<CommentResponse>) {
@@ -1014,9 +1028,8 @@ export class Profile extends Component<
       if (s.personRes.state === "success" && res.state === "success") {
         s.personRes.data.comments = editComment(
           res.data.comment_view,
-          s.personRes.data.comments
+          s.personRes.data.comments,
         );
-        s.finished.set(res.data.comment_view.comment.id, true);
       }
       return s;
     });
@@ -1029,7 +1042,7 @@ export class Profile extends Component<
         // Set finished for the parent
         s.finished.set(
           getCommentParentId(res.data.comment_view.comment) ?? 0,
-          true
+          true,
         );
       }
       return s;
@@ -1041,7 +1054,7 @@ export class Profile extends Component<
       if (s.personRes.state === "success" && res.state === "success") {
         s.personRes.data.comments = editWith(
           res.data.comment_reply_view,
-          s.personRes.data.comments
+          s.personRes.data.comments,
         );
       }
       return s;
@@ -1053,7 +1066,7 @@ export class Profile extends Component<
       if (s.personRes.state === "success" && res.state === "success") {
         s.personRes.data.posts = editPost(
           res.data.post_view,
-          s.personRes.data.posts
+          s.personRes.data.posts,
         );
       }
       return s;

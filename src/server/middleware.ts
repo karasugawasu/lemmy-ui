@@ -1,6 +1,6 @@
 import * as crypto from "crypto";
 import type { NextFunction, Request, Response } from "express";
-import { hasJwtCookie } from "./utils/has-jwt-cookie";
+import { getJwtCookie } from "./utils/has-jwt-cookie";
 
 export function setDefaultCsp({
   res,
@@ -16,13 +16,13 @@ export function setDefaultCsp({
     `default-src 'self';
      manifest-src *;
      connect-src *;
-     img-src * data:;
+     img-src * data: blob:;
      script-src 'self' 'nonce-${res.locals.cspNonce}';
      style-src 'self' 'unsafe-inline';
      form-action 'self';
      base-uri 'self';
      frame-src *;
-     media-src * data:`.replace(/\s+/g, " ")
+     media-src * data:`.replace(/\s+/g, " "),
   );
 
   next();
@@ -37,7 +37,7 @@ export function setDefaultCsp({
 export function setCacheControl(
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) {
   if (process.env.NODE_ENV !== "production") {
     return next();
@@ -52,10 +52,10 @@ export function setCacheControl(
     // Static content gets cached publicly for a day
     caching = "public, max-age=86400";
   } else {
-    if (hasJwtCookie(req)) {
+    if (getJwtCookie(req.headers)) {
       caching = "private";
     } else {
-      caching = "public, max-age=5";
+      caching = "public, max-age=60";
     }
   }
 

@@ -1,10 +1,4 @@
-import {
-  editCommunity,
-  myAuth,
-  myAuthRequired,
-  setIsoData,
-  showLocal,
-} from "@utils/app";
+import { editCommunity, setIsoData, showLocal } from "@utils/app";
 import {
   getPageFromString,
   getQueryParams,
@@ -17,20 +11,31 @@ import { Component, linkEvent } from "inferno";
 import {
   CommunityResponse,
   GetSiteResponse,
+  LemmyHttp,
   ListCommunities,
   ListCommunitiesResponse,
   ListingType,
+  SortType,
 } from "lemmy-js-client";
 import { InitialFetchRequest } from "../../interfaces";
 import { FirstLoadService, I18NextService } from "../../services";
-import { HttpService, RequestState } from "../../services/HttpService";
+import {
+  EMPTY_REQUEST,
+  HttpService,
+  LOADING_REQUEST,
+  RequestState,
+  wrapClient,
+} from "../../services/HttpService";
 import { HtmlTags } from "../common/html-tags";
 import { Spinner } from "../common/icon";
 import { ListingTypeSelect } from "../common/listing-type-select";
 import { Paginator } from "../common/paginator";
+import { SortSelect } from "../common/sort-select";
 import { CommunityLink } from "./community-link";
 
-const communityLimit = 50;
+import { communityLimit } from "../../config";
+import { SubscribeButton } from "../common/subscribe-button";
+import { getHttpBaseInternal } from "../../utils/env";
 
 type CommunitiesData = RouteDataResponse<{
   listCommunitiesResponse: ListCommunitiesResponse;
@@ -45,6 +50,7 @@ interface CommunitiesState {
 
 interface CommunitiesProps {
   listingType: ListingType;
+  sort: SortType;
   page: number;
 }
 
@@ -52,10 +58,21 @@ function getListingTypeFromQuery(listingType?: string): ListingType {
   return listingType ? (listingType as ListingType) : "Local";
 }
 
+function getSortTypeFromQuery(type?: string): SortType {
+  return type ? (type as SortType) : "TopMonth";
+}
+function getCommunitiesQueryParams() {
+  return getQueryParams<CommunitiesProps>({
+    listingType: getListingTypeFromQuery,
+    sort: getSortTypeFromQuery,
+    page: getPageFromString,
+  });
+}
+
 export class Communities extends Component<any, CommunitiesState> {
   private isoData = setIsoData<CommunitiesData>(this.context);
   state: CommunitiesState = {
-    listCommunitiesResponse: { state: "empty" },
+    listCommunitiesResponse: EMPTY_REQUEST,
     siteRes: this.isoData.site_res,
     searchText: "",
     isIsomorphic: false,
@@ -64,6 +81,7 @@ export class Communities extends Component<any, CommunitiesState> {
   constructor(props: any, context: any) {
     super(props, context);
     this.handlePageChange = this.handlePageChange.bind(this);
+    this.handleSortChange = this.handleSortChange.bind(this);
     this.handleListingTypeChange = this.handleListingTypeChange.bind(this);
 
     // Only fetch the data if coming from another route
@@ -99,13 +117,13 @@ export class Communities extends Component<any, CommunitiesState> {
           </h5>
         );
       case "success": {
-        const { listingType, page } = this.getCommunitiesQueryParams();
+        const { listingType, sort, page } = getCommunitiesQueryParams();
         return (
           <div>
             <h1 className="h4 mb-4">
               {I18NextService.i18n.t("list_of_communities")}
             </h1>
-            <div className="row g-2 justify-content-between">
+            <div className="row g-3 align-items-center mb-2">
               <div className="col-auto">
                 <ListingTypeSelect
                   type_={listingType}
@@ -113,6 +131,9 @@ export class Communities extends Component<any, CommunitiesState> {
                   showSubscribed
                   onChange={this.handleListingTypeChange}
                 />
+              </div>
+              <div className="col-auto me-auto">
+                <SortSelect sort={sort} onChange={this.handleSortChange} />
               </div>
               <div className="col-auto">{this.searchForm()}</div>
             </div>
@@ -161,49 +182,41 @@ export class Communities extends Component<any, CommunitiesState> {
                           {numToSI(cv.counts.comments)}
                         </td>
                         <td className="text-right">
-                          {cv.subscribed === "Subscribed" && (
-                            <button
-                              className="btn btn-link d-inline-block"
-                              onClick={linkEvent(
-                                {
-                                  i: this,
-                                  communityId: cv.community.id,
-                                  follow: false,
-                                },
-                                this.handleFollow
-                              )}
-                            >
-                              {I18NextService.i18n.t("unsubscribe")}
-                            </button>
-                          )}
-                          {cv.subscribed === "NotSubscribed" && (
-                            <button
-                              className="btn btn-link d-inline-block"
-                              onClick={linkEvent(
-                                {
-                                  i: this,
-                                  communityId: cv.community.id,
-                                  follow: true,
-                                },
-                                this.handleFollow
-                              )}
-                            >
-                              {I18NextService.i18n.t("subscribe")}
-                            </button>
-                          )}
-                          {cv.subscribed === "Pending" && (
-                            <div className="text-warning d-inline-block">
-                              {I18NextService.i18n.t("subscribe_pending")}
-                            </div>
-                          )}
+                          <SubscribeButton
+                            communityView={cv}
+                            onFollow={linkEvent(
+                              {
+                                i: this,
+                                communityId: cv.community.id,
+                                follow: true,
+                              },
+                              this.handleFollow,
+                            )}
+                            onUnFollow={linkEvent(
+                              {
+                                i: this,
+                                communityId: cv.community.id,
+                                follow: false,
+                              },
+                              this.handleFollow,
+                            )}
+                            isLink
+                          />
                         </td>
                       </tr>
-                    )
+                    ),
                   )}
                 </tbody>
               </table>
             </div>
-            <Paginator page={page} onChange={this.handlePageChange} />
+            <Paginator
+              page={page}
+              onChange={this.handlePageChange}
+              nextDisabled={
+                communityLimit >
+                this.state.listCommunitiesResponse.data.communities.length
+              }
+            />
           </div>
         );
       }
@@ -224,10 +237,7 @@ export class Communities extends Component<any, CommunitiesState> {
 
   searchForm() {
     return (
-      <form
-        className="row mb-2"
-        onSubmit={linkEvent(this, this.handleSearchSubmit)}
-      >
+      <form className="row" onSubmit={linkEvent(this, this.handleSearchSubmit)}>
         <div className="col-auto">
           <input
             type="text"
@@ -252,12 +262,16 @@ export class Communities extends Component<any, CommunitiesState> {
     );
   }
 
-  async updateUrl({ listingType, page }: Partial<CommunitiesProps>) {
-    const { listingType: urlListingType, page: urlPage } =
-      this.getCommunitiesQueryParams();
+  async updateUrl({ listingType, sort, page }: Partial<CommunitiesProps>) {
+    const {
+      listingType: urlListingType,
+      sort: urlSort,
+      page: urlPage,
+    } = getCommunitiesQueryParams();
 
     const queryParams: QueryParams<CommunitiesProps> = {
       listingType: listingType ?? urlListingType,
+      sort: sort ?? urlSort,
       page: (page ?? urlPage)?.toString(),
     };
 
@@ -268,6 +282,10 @@ export class Communities extends Component<any, CommunitiesState> {
 
   handlePageChange(page: number) {
     this.updateUrl({ page });
+  }
+
+  handleSortChange(val: SortType) {
+    this.updateUrl({ sort: val, page: 1 });
   }
 
   handleListingTypeChange(val: ListingType) {
@@ -284,38 +302,32 @@ export class Communities extends Component<any, CommunitiesState> {
   handleSearchSubmit(i: Communities, event: any) {
     event.preventDefault();
     const searchParamEncoded = encodeURIComponent(i.state.searchText);
+    const { listingType } = getCommunitiesQueryParams();
     i.context.router.history.push(
-      `/search?q=${searchParamEncoded}&type=Communities`
+      `/search?q=${searchParamEncoded}&type=Communities&listingType=${listingType}`,
     );
   }
 
   static async fetchInitialData({
-    query: { listingType, page },
-    client,
-    auth,
+    headers,
+    query: { listingType, sort, page },
   }: InitialFetchRequest<
     QueryParams<CommunitiesProps>
   >): Promise<CommunitiesData> {
+    const client = wrapClient(
+      new LemmyHttp(getHttpBaseInternal(), { headers }),
+    );
     const listCommunitiesForm: ListCommunities = {
       type_: getListingTypeFromQuery(listingType),
-      sort: "TopMonth",
+      sort: getSortTypeFromQuery(sort),
       limit: communityLimit,
       page: getPageFromString(page),
-      auth: auth,
     };
 
     return {
-      listCommunitiesResponse: await client.listCommunities(
-        listCommunitiesForm
-      ),
+      listCommunitiesResponse:
+        await client.listCommunities(listCommunitiesForm),
     };
-  }
-
-  getCommunitiesQueryParams() {
-    return getQueryParams<CommunitiesProps>({
-      listingType: getListingTypeFromQuery,
-      page: getPageFromString,
-    });
   }
 
   async handleFollow(data: {
@@ -326,23 +338,21 @@ export class Communities extends Component<any, CommunitiesState> {
     const res = await HttpService.client.followCommunity({
       community_id: data.communityId,
       follow: data.follow,
-      auth: myAuthRequired(),
     });
     data.i.findAndUpdateCommunity(res);
   }
 
   async refetch() {
-    this.setState({ listCommunitiesResponse: { state: "loading" } });
+    this.setState({ listCommunitiesResponse: LOADING_REQUEST });
 
-    const { listingType, page } = this.getCommunitiesQueryParams();
+    const { listingType, sort, page } = getCommunitiesQueryParams();
 
     this.setState({
       listCommunitiesResponse: await HttpService.client.listCommunities({
         type_: listingType,
-        sort: "TopMonth",
+        sort: sort,
         limit: communityLimit,
         page,
-        auth: myAuth(),
       }),
     });
 
@@ -357,7 +367,7 @@ export class Communities extends Component<any, CommunitiesState> {
       ) {
         s.listCommunitiesResponse.data.communities = editCommunity(
           res.data.community_view,
-          s.listCommunitiesResponse.data.communities
+          s.listCommunitiesResponse.data.communities,
         );
       }
       return s;

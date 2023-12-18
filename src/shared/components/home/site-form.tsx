@@ -1,4 +1,3 @@
-import { myAuthRequired } from "@utils/app";
 import { capitalizeFirstLetter, validInstanceTLD } from "@utils/helpers";
 import {
   Component,
@@ -85,7 +84,6 @@ export class SiteForm extends Component<SiteFormProps, SiteFormState> {
       captcha_difficulty: ls.captcha_difficulty,
       allowed_instances: this.props.allowedInstances?.map(i => i.domain),
       blocked_instances: this.props.blockedInstances?.map(i => i.domain),
-      auth: "TODO",
     };
   }
 
@@ -319,7 +317,7 @@ export class SiteForm extends Component<SiteFormProps, SiteFormState> {
                 checked={this.state.siteForm.community_creation_admin_only}
                 onChange={linkEvent(
                   this,
-                  this.handleSiteCommunityCreationAdminOnly
+                  this.handleSiteCommunityCreationAdminOnly,
                 )}
               />
               <label
@@ -341,7 +339,7 @@ export class SiteForm extends Component<SiteFormProps, SiteFormState> {
                 checked={this.state.siteForm.require_email_verification}
                 onChange={linkEvent(
                   this,
-                  this.handleSiteRequireEmailVerification
+                  this.handleSiteRequireEmailVerification,
                 )}
               />
               <label
@@ -363,7 +361,7 @@ export class SiteForm extends Component<SiteFormProps, SiteFormState> {
                 checked={this.state.siteForm.application_email_admins}
                 onChange={linkEvent(
                   this,
-                  this.handleSiteApplicationEmailAdmins
+                  this.handleSiteApplicationEmailAdmins,
                 )}
               />
               <label
@@ -631,7 +629,7 @@ export class SiteForm extends Component<SiteFormProps, SiteFormState> {
   }
 
   componentDidUpdate(
-    prevProps: Readonly<{ children?: InfernoNode } & SiteFormProps>
+    prevProps: Readonly<{ children?: InfernoNode } & SiteFormProps>,
   ) {
     if (
       !(
@@ -694,7 +692,7 @@ export class SiteForm extends Component<SiteFormProps, SiteFormState> {
                   className="btn btn-sm bg-danger"
                   onClick={linkEvent(
                     { key, instance },
-                    this.handleRemoveInstance
+                    this.handleRemoveInstance,
                   )}
                 >
                   <Icon
@@ -722,7 +720,7 @@ export class SiteForm extends Component<SiteFormProps, SiteFormState> {
 
   handleInstanceEnterPress(
     key: InstanceKey,
-    event: InfernoKeyboardEvent<HTMLInputElement>
+    event: InfernoKeyboardEvent<HTMLInputElement>,
   ) {
     if (event.code.toLowerCase() === "enter") {
       event.preventDefault();
@@ -733,8 +731,6 @@ export class SiteForm extends Component<SiteFormProps, SiteFormState> {
 
   handleSaveSiteSubmit(i: SiteForm, event: any) {
     event.preventDefault();
-    const auth = myAuthRequired();
-    i.setState(s => ((s.siteForm.auth = auth), s));
     i.setState({ submitted: true });
 
     const stateSiteForm = i.state.siteForm;
@@ -788,7 +784,6 @@ export class SiteForm extends Component<SiteFormProps, SiteFormState> {
         allowed_instances: stateSiteForm.allowed_instances,
         blocked_instances: stateSiteForm.blocked_instances,
         discussion_languages: stateSiteForm.discussion_languages,
-        auth,
       };
     }
 
@@ -863,7 +858,7 @@ export class SiteForm extends Component<SiteFormProps, SiteFormState> {
   handleDeleteTaglineClick(
     i: SiteForm,
     index: number,
-    event: InfernoMouseEvent<HTMLButtonElement>
+    event: InfernoMouseEvent<HTMLButtonElement>,
   ) {
     event.preventDefault();
     const taglines = i.state.siteForm.taglines;
@@ -878,7 +873,7 @@ export class SiteForm extends Component<SiteFormProps, SiteFormState> {
 
   handleAddTaglineClick(
     i: SiteForm,
-    event: InfernoMouseEvent<HTMLButtonElement>
+    event: InfernoMouseEvent<HTMLButtonElement>,
   ) {
     event.preventDefault();
     if (!i.state.siteForm.taglines) {
@@ -969,7 +964,7 @@ export class SiteForm extends Component<SiteFormProps, SiteFormState> {
 
   handleSiteActorNameMaxLength(i: SiteForm, event: any) {
     i.setState(
-      s => ((s.siteForm.actor_name_max_length = Number(event.target.value)), s)
+      s => ((s.siteForm.actor_name_max_length = Number(event.target.value)), s),
     );
   }
 

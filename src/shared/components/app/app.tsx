@@ -1,12 +1,11 @@
-import { isAuthPath, setIsoData } from "@utils/app";
+import { isAnonymousPath, isAuthPath, setIsoData } from "@utils/app";
 import { dataBsTheme } from "@utils/browser";
 import { Component, RefObject, createRef, linkEvent } from "inferno";
 import { Provider } from "inferno-i18next-dess";
 import { Route, Switch } from "inferno-router";
-import { MyUserInfo } from "lemmy-js-client";
 import { IsoDataOptionalSite } from "../../interfaces";
 import { routes } from "../../routes";
-import { FirstLoadService, I18NextService, UserService } from "../../services";
+import { FirstLoadService, I18NextService } from "../../services";
 import AuthGuard from "../common/auth-guard";
 import ErrorGuard from "../common/error-guard";
 import { ErrorPage } from "./error-page";
@@ -14,15 +13,13 @@ import { Footer } from "./footer";
 import { Navbar } from "./navbar";
 import "./styles.scss";
 import { Theme } from "./theme";
+import AnonymousGuard from "../common/anonymous-guard";
+import { CodeTheme } from "./code-theme";
 
-interface AppProps {
-  user?: MyUserInfo;
-}
-
-export class App extends Component<AppProps, any> {
+export class App extends Component<any, any> {
   private isoData: IsoDataOptionalSite = setIsoData(this.context);
   private readonly mainContentRef: RefObject<HTMLElement>;
-  constructor(props: AppProps, context: any) {
+  constructor(props: any, context: any) {
     super(props, context);
     this.mainContentRef = createRef();
   }
@@ -31,8 +28,6 @@ export class App extends Component<AppProps, any> {
     event.preventDefault();
     this.mainContentRef.current?.focus();
   }
-
-  user = UserService.Instance.myUserInfo;
 
   render() {
     const siteRes = this.isoData.site_res;
@@ -44,7 +39,7 @@ export class App extends Component<AppProps, any> {
           <div
             id="app"
             className="lemmy-site"
-            data-bs-theme={dataBsTheme(this.props.user)}
+            data-bs-theme={dataBsTheme(siteRes)}
           >
             <button
               type="button"
@@ -54,7 +49,10 @@ export class App extends Component<AppProps, any> {
               {I18NextService.i18n.t("jump_to_content", "Jump to content")}
             </button>
             {siteView && (
-              <Theme defaultTheme={siteView.local_site.default_theme} />
+              <>
+                <Theme defaultTheme={siteView.local_site.default_theme} />
+                <CodeTheme />
+              </>
             )}
             <Navbar siteRes={siteRes} />
             <div className="mt-4 p-0 fl-1">
@@ -75,9 +73,13 @@ export class App extends Component<AppProps, any> {
                             <div tabIndex={-1}>
                               {RouteComponent &&
                                 (isAuthPath(path ?? "") ? (
-                                  <AuthGuard>
+                                  <AuthGuard {...routeProps}>
                                     <RouteComponent {...routeProps} />
                                   </AuthGuard>
+                                ) : isAnonymousPath(path ?? "") ? (
+                                  <AnonymousGuard>
+                                    <RouteComponent {...routeProps} />
+                                  </AnonymousGuard>
                                 ) : (
                                   <RouteComponent {...routeProps} />
                                 ))}
@@ -86,7 +88,7 @@ export class App extends Component<AppProps, any> {
                         );
                       }}
                     />
-                  )
+                  ),
                 )}
                 <Route component={ErrorPage} />
               </Switch>

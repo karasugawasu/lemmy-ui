@@ -1,7 +1,6 @@
 import { readFile } from "fs/promises";
-import { GetSiteResponse } from "lemmy-js-client";
+import { Site } from "lemmy-js-client";
 import path from "path";
-import sharp from "sharp";
 import { fetchIconPng } from "./fetch-icon-png";
 
 const iconSizes = [72, 96, 128, 144, 152, 192, 384, 512];
@@ -10,16 +9,10 @@ const defaultLogoPathDirectory = path.join(
   process.cwd(),
   "dist",
   "assets",
-  "icons"
+  "icons",
 );
 
-export default async function ({
-  my_user,
-  site_view: {
-    site,
-    local_site: { community_creation_admin_only },
-  },
-}: GetSiteResponse) {
+export default async function (site: Site) {
   const icon = site.icon ? await fetchIconPng(site.icon) : null;
 
   return {
@@ -34,10 +27,11 @@ export default async function ({
     icons: await Promise.all(
       iconSizes.map(async size => {
         let src = await readFile(
-          path.join(defaultLogoPathDirectory, `icon-${size}x${size}.png`)
+          path.join(defaultLogoPathDirectory, `icon-${size}x${size}.png`),
         ).then(buf => buf.toString("base64"));
 
         if (icon) {
+          const sharp = (await import("sharp")).default;
           src = await sharp(icon)
             .resize(size, size)
             .png()
@@ -51,7 +45,7 @@ export default async function ({
           src: `data:image/png;base64,${src}`,
           purpose: "any maskable",
         };
-      })
+      }),
     ),
     shortcuts: [
       {
@@ -72,18 +66,7 @@ export default async function ({
         short_name: "Create Post",
         description: "Create a post.",
       },
-    ].concat(
-      my_user?.local_user_view.person.admin || !community_creation_admin_only
-        ? [
-            {
-              name: "Create Community",
-              url: "/create_community",
-              short_name: "Create Community",
-              description: "Create a community",
-            },
-          ]
-        : []
-    ),
+    ],
     related_applications: [
       {
         platform: "f-droid",

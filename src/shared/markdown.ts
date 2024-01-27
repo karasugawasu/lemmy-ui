@@ -93,7 +93,7 @@ const textcolorConfig = {
       return `<div class="text-${color}">`;
     } else {
       // closing tag
-      return "</div>";
+      return "</div>\n";
     }
   },
 };
@@ -110,7 +110,7 @@ const bgcolorConfig = {
       return `<div class="bg-${color}">`;
     } else {
       // closing tag
-      return "</div>";
+      return "</div>\n";
     }
   },
 };
@@ -125,6 +125,24 @@ const alertConfig = {
     if (tokens[idx].nesting === 1) {
       const color = mdToHtmlInline(md.utils.escapeHtml(m[1])).__html;
       return `<div class="alert alert-${color}" role="alert">`;
+    } else {
+      // closing tag
+      return "</div>\n";
+    }
+  },
+};
+
+const mastodonEmbedConfig = {
+  validate: (params: string) => {
+    return params.trim().match(/^mdembed\s+(.*)$/);
+  },
+
+  render: (tokens: any, idx: any) => {
+    const m = tokens[idx].info.trim().match(/^mdembed\s+(.*)$/);
+    if (tokens[idx].nesting === 1) {
+      const url = mdToHtmlInline(md.utils.escapeHtml(m[1])).__html;
+      const domain = new URL(url).origin;
+      return `<div class="mastodon-embed"><iframe src="${url}/embed" class="mastodon-embed" style="max-width: 100%; border: 0" width="400" allowfullscreen="allowfullscreen"></iframe><script src="${domain}/embed.js" async="async"></script>`;
     } else {
       // closing tag
       return "</div>\n";
@@ -277,6 +295,7 @@ export function setupMarkdown() {
     .use(markdown_it_container, "color", textcolorConfig)
     .use(markdown_it_container, "bgcolor", bgcolorConfig)
     .use(markdown_it_container, "alert", alertConfig)
+    .use(markdown_it_container, "mdembed", mastodonEmbedConfig)
     .use(markdown_it_highlightjs, { inline: true })
     .use(markdown_it_ruby)
     .use(localInstanceLinkParser)

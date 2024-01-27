@@ -81,6 +81,57 @@ const spoilerConfig = {
   },
 };
 
+const textcolorConfig = {
+  validate: (params: string) => {
+    return params.trim().match(/^color\s+(.*)$/);
+  },
+
+  render: (tokens: any, idx: any) => {
+    const m = tokens[idx].info.trim().match(/^color\s+(.*)$/);
+    if (tokens[idx].nesting === 1) {
+      const color = mdToHtmlInline(md.utils.escapeHtml(m[1])).__html;
+      return `<div class="text-${color}">`;
+    } else {
+      // closing tag
+      return "</div>";
+    }
+  },
+};
+
+const bgcolorConfig = {
+  validate: (params: string) => {
+    return params.trim().match(/^bg\s+(.*)$/);
+  },
+
+  render: (tokens: any, idx: any) => {
+    const m = tokens[idx].info.trim().match(/^bg\s+(.*)$/);
+    if (tokens[idx].nesting === 1) {
+      const color = mdToHtmlInline(md.utils.escapeHtml(m[1])).__html;
+      return `<div class="bg-${color}">`;
+    } else {
+      // closing tag
+      return "</div>";
+    }
+  },
+};
+
+const alertConfig = {
+  validate: (params: string) => {
+    return params.trim().match(/^alert\s+(.*)$/);
+  },
+
+  render: (tokens: any, idx: any) => {
+    const m = tokens[idx].info.trim().match(/^alert\s+(.*)$/);
+    if (tokens[idx].nesting === 1) {
+      const color = mdToHtmlInline(md.utils.escapeHtml(m[1])).__html;
+      return `<div class="alert alert-${color}" role="alert">`;
+    } else {
+      // closing tag
+      return "</div>\n";
+    }
+  },
+};
+
 const html5EmbedConfig = {
   html5embed: {
     useImageSyntax: true, // Enables video/audio embed with ![]() syntax (default)
@@ -223,6 +274,9 @@ export function setupMarkdown() {
     .use(markdown_it_footnote)
     .use(markdown_it_html5_embed, html5EmbedConfig)
     .use(markdown_it_container, "spoiler", spoilerConfig)
+    .use(markdown_it_container, "color", textcolorConfig)
+    .use(markdown_it_container, "bgcolor", bgcolorConfig)
+    .use(markdown_it_container, "alert", alertConfig)
     .use(markdown_it_highlightjs, { inline: true })
     .use(markdown_it_ruby)
     .use(localInstanceLinkParser)

@@ -20,7 +20,7 @@ import Token from "markdown-it/lib/token";
 import { instanceLinkRegex, relTags } from "./config";
 
 //tuika
-import { taskLists } from "@hedgedoc/markdown-it-plugins";
+import markdown_it_tasklists from "@hackmd/markdown-it-task-lists";
 import markdown_it_anchor from "markdown-it-anchor";
 import markdown_it_mark from "markdown-it-mark";
 import markdown_it_mathjax3 from "markdown-it-mathjax3";
@@ -216,7 +216,7 @@ export function setupMarkdown() {
       //}),
     })
     .use(markdown_it_mathjax3)
-    .use(taskLists)
+    .use(markdown_it_tasklists)
     .use(markdown_it_mark)
     .use(markdown_it_sub)
     .use(markdown_it_sup)
@@ -233,7 +233,7 @@ export function setupMarkdown() {
 
   mdNoImages = new MarkdownIt(markdownItConfig)
     .use(markdown_it_mathjax3)
-    .use(taskLists)
+    .use(markdown_it_tasklists)
     .use(markdown_it_mark)
     .use(markdown_it_sub)
     .use(markdown_it_sup)

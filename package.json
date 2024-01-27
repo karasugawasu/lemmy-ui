@@ -34,7 +34,7 @@
     "@babel/preset-typescript": "^7.21.5",
     "@babel/runtime": "^7.23.8",
     "@emoji-mart/data": "^1.1.0",
-    "@hedgedoc/markdown-it-plugins": "^2.1.4",
+    "@hackmd/markdown-it-task-lists": "^2.1.3",
     "@shortcm/qr-image": "^9.0.2",
     "autosize": "^6.0.1",
     "babel-loader": "^9.1.3",

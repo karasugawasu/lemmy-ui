@@ -1,9 +1,7 @@
 import { colorList, getCommentParentId, showScores } from "@utils/app";
 import { futureDaysToUnixTime, numToSI } from "@utils/helpers";
 import classNames from "classnames";
-import isBefore from "date-fns/isBefore";
-import parseISO from "date-fns/parseISO";
-import subMinutes from "date-fns/subMinutes";
+import { isBefore, parseISO, subMinutes } from "date-fns";
 import { Component, InfernoNode, linkEvent } from "inferno";
 import { Link } from "inferno-router";
 import {
@@ -509,11 +507,11 @@ export class CommentNode extends Component<CommentNodeProps, CommentNodeState> {
         >
           <Icon icon="link" classes="icon-inline" />
         </Link>
-        {
+        {!cv.comment.local && (
           <a className={classnames} title={title} href={cv.comment.ap_id}>
             <Icon icon="fedilink" classes="icon-inline" />
           </a>
-        }
+        )}
       </>
     );
   }

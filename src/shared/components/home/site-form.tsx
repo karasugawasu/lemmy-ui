@@ -21,6 +21,7 @@ import { ImageUploadForm } from "../common/image-upload-form";
 import { LanguageSelect } from "../common/language-select";
 import { ListingTypeSelect } from "../common/listing-type-select";
 import { MarkdownTextArea } from "../common/markdown-textarea";
+import UrlListTextarea from "../common/url-list-textarea";
 
 interface SiteFormProps {
   blockedInstances?: Instance[];
@@ -84,6 +85,8 @@ export class SiteForm extends Component<SiteFormProps, SiteFormState> {
       captcha_difficulty: ls.captcha_difficulty,
       allowed_instances: this.props.allowedInstances?.map(i => i.domain),
       blocked_instances: this.props.blockedInstances?.map(i => i.domain),
+      blocked_urls: this.props.siteRes.blocked_urls.map(u => u.url),
+      content_warning: this.props.siteRes.site_view.site.content_warning,
     };
   }
 
@@ -112,6 +115,10 @@ export class SiteForm extends Component<SiteFormProps, SiteFormState> {
 
     this.handleInstanceEnterPress = this.handleInstanceEnterPress.bind(this);
     this.handleInstanceTextChange = this.handleInstanceTextChange.bind(this);
+
+    this.handleBlockedUrlsUpdate = this.handleBlockedUrlsUpdate.bind(this);
+    this.handleSiteContentWarningChange =
+      this.handleSiteContentWarningChange.bind(this);
   }
 
   render() {
@@ -265,6 +272,26 @@ export class SiteForm extends Component<SiteFormProps, SiteFormState> {
             </div>
           </div>
         </div>
+        {this.state.siteForm.enable_nsfw && (
+          <div className="mb-3 row">
+            <div className="alert small alert-info" role="alert">
+              <Icon icon="info" classes="icon-inline me-2" />
+              {I18NextService.i18n.t("content_warning_setting_blurb")}
+            </div>
+            <label className="col-12 col-form-label">
+              {I18NextService.i18n.t("content_warning")}
+            </label>
+            <div className="col-12">
+              <MarkdownTextArea
+                initialContent={this.state.siteForm.content_warning}
+                onContentChange={this.handleSiteContentWarningChange}
+                hideNavigationWarnings
+                allLanguages={[]}
+                siteLanguages={[]}
+              />
+            </div>
+          </div>
+        )}
         <div className="mb-3 row">
           <div className="col-12">
             <label
@@ -499,6 +526,10 @@ export class SiteForm extends Component<SiteFormProps, SiteFormState> {
           multiple={true}
           onChange={this.handleDiscussionLanguageChange}
           showAll
+        />
+        <UrlListTextarea
+          urls={this.state.siteForm.blocked_urls ?? []}
+          onUpdate={this.handleBlockedUrlsUpdate}
         />
         <div className="mb-3 row">
           <label
@@ -993,5 +1024,19 @@ export class SiteForm extends Component<SiteFormProps, SiteFormState> {
 
   handleDefaultPostListingTypeChange(val: ListingType) {
     this.setState(s => ((s.siteForm.default_post_listing_type = val), s));
+  }
+
+  handleBlockedUrlsUpdate(newBlockedUrls: string[]) {
+    this.setState(prev => ({
+      ...prev,
+      siteForm: {
+        ...prev.siteForm,
+        blocked_urls: newBlockedUrls,
+      },
+    }));
+  }
+
+  handleSiteContentWarningChange(val: string) {
+    this.setState(s => ((s.siteForm.content_warning = val), s));
   }
 }

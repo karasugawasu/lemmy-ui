@@ -14,10 +14,10 @@ import markdown_it_html5_embed from "markdown-it-html5-embed";
 import markdown_it_ruby from "markdown-it-ruby";
 import markdown_it_sub from "markdown-it-sub";
 import markdown_it_sup from "markdown-it-sup";
-import markdown_it_highlightjs from "markdown-it-highlightjs";
-import Renderer from "markdown-it/lib/renderer";
-import Token from "markdown-it/lib/token";
+import markdown_it_highlightjs from "markdown-it-highlightjs/core";
+import { Renderer, Token } from "markdown-it";
 import { instanceLinkRegex, relTags } from "./config";
+import { lazyHighlightjs } from "./lazy-highlightjs";
 
 //tuika
 import markdown_it_tasklists from "@hackmd/markdown-it-task-lists";
@@ -51,12 +51,12 @@ if (isBrowser()) {
   Tribute = require("tributejs");
 }
 
-export function mdToHtml(text: string) {
-  return { __html: md.render(text) };
+export function mdToHtml(text: string, rerender: () => void) {
+  return { __html: lazyHighlightjs.render(md, text, rerender) };
 }
 
-export function mdToHtmlNoImages(text: string) {
-  return { __html: mdNoImages.render(text) };
+export function mdToHtmlNoImages(text: string, rerender: () => void) {
+  return { __html: lazyHighlightjs.render(mdNoImages, text, rerender) };
 }
 
 export function mdToHtmlInline(text: string) {
@@ -148,6 +148,14 @@ const mastodonEmbedConfig = {
       return "</div>\n";
     }
   },
+};
+
+const highlightjsConfig = {
+  inline: true,
+  hljs: lazyHighlightjs.hljs,
+  auto: true,
+  code: true,
+  ignoreIllegals: true,
 };
 
 const html5EmbedConfig = {
@@ -296,7 +304,7 @@ export function setupMarkdown() {
     .use(markdown_it_container, "bgcolor", bgcolorConfig)
     .use(markdown_it_container, "alert", alertConfig)
     .use(markdown_it_container, "mdembed", mastodonEmbedConfig)
-    .use(markdown_it_highlightjs, { inline: true })
+    .use(markdown_it_highlightjs, highlightjsConfig)
     .use(markdown_it_ruby)
     .use(localInstanceLinkParser)
     .use(markdown_it_bidi);
@@ -313,7 +321,7 @@ export function setupMarkdown() {
     .use(markdown_it_footnote)
     .use(markdown_it_html5_embed, html5EmbedConfig)
     .use(markdown_it_container, "spoiler", spoilerConfig)
-    .use(markdown_it_highlightjs, { inline: true })
+    .use(markdown_it_highlightjs, highlightjsConfig)
     .use(localInstanceLinkParser)
     .use(markdown_it_bidi)
     // .use(markdown_it_emoji, {

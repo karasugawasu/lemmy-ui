@@ -1,3 +1,6 @@
+variables:
+  - &install_pnpm "corepack enable pnpm"
+
 steps:
   fetch_git_submodules:
     image: node:20-alpine
@@ -5,22 +8,33 @@ steps:
       - apk add git
       - git submodule init
       - git submodule update --recursive --remote
-      # - git fetch --tags
+    when:
+      - event: [pull_request, tag]
 
-  yarn:
+  install:
     image: node:20-alpine
     commands:
-      - yarn
+      - *install_pnpm
+      - pnpm i
+    when:
+      - event: pull_request
 
-  yarn_lint:
+  lint:
     image: node:20-alpine
     commands:
-      - yarn lint
+      - *install_pnpm
+      - pnpm lint
+    when:
+      - event: pull_request
 
-  yarn_build_dev:
+  build_dev:
     image: node:20-alpine
     commands:
-      - yarn build:dev
+      - *install_pnpm
+      - pnpm prebuild:dev
+      - pnpm build:dev
+    when:
+      - event: pull_request
 
   publish_release_docker:
     image: woodpeckerci/plugin-docker-buildx
@@ -31,7 +45,7 @@ steps:
       platforms: linux/amd64, linux/arm64
       tag: ${CI_COMMIT_TAG}
     when:
-      event: tag
+      - event: tag
 
   nightly_build:
     image: woodpeckerci/plugin-docker-buildx
@@ -42,7 +56,7 @@ steps:
       platforms: linux/amd64, linux/arm64
       tag: dev
     when:
-      event: cron
+      - event: cron
 
   notify_on_failure:
     image: alpine:3
@@ -50,7 +64,8 @@ steps:
       - apk add curl
       - "curl -d'Lemmy-UI CI build failed: ${CI_PIPELINE_URL}' ntfy.sh/lemmy_drone_ci"
     when:
-      status: [failure]
+      - event: [pull_request, tag]
+        status: failure
 
   notify_on_tag_deploy:
     image: alpine:3

@@ -1,3 +1,7 @@
+body {
+  overflow-y: scroll !important;
+}
+
 .navbar-expand-lg .navbar-nav .nav-link {
   padding-right: 0.75rem !important;
   padding-left: 0.75rem !important;
@@ -185,10 +189,16 @@ blockquote {
   margin-top: -4px;
 }
 
+/* comments */
 .new-comments {
   max-height: 50vh;
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+.comment-content ul,
+.comment-content ol {
+  margin-bottom: 1rem;
 }
 
 .comments {

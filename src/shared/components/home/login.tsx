@@ -1,5 +1,5 @@
 import { setIsoData } from "@utils/app";
-import { isBrowser, updateDataBsTheme } from "@utils/browser";
+import { isBrowser, refreshTheme } from "@utils/browser";
 import { getQueryParams } from "@utils/helpers";
 import { Component, linkEvent } from "inferno";
 import { RouteComponentProps } from "inferno-router/dist/Route";
@@ -17,17 +17,22 @@ import { Spinner } from "../common/icon";
 import PasswordInput from "../common/password-input";
 import TotpModal from "../common/totp-modal";
 import { UnreadCounterService } from "../../services";
+import { RouteData } from "../../interfaces";
+import { IRoutePropsWithFetch } from "../../routes";
+import { simpleScrollMixin } from "../mixins/scroll-mixin";
 
 interface LoginProps {
   prev?: string;
 }
 
-const getLoginQueryParams = () =>
-  getQueryParams<LoginProps>({
-    prev(param) {
-      return param ? decodeURIComponent(param) : undefined;
+export function getLoginQueryParams(source?: string): LoginProps {
+  return getQueryParams<LoginProps>(
+    {
+      prev: (param?: string) => param,
     },
-  });
+    source,
+  );
+}
 
 interface State {
   loginRes: RequestState<LoginResponse>;
@@ -47,10 +52,10 @@ async function handleLoginSuccess(i: Login, loginRes: LoginResponse) {
 
   if (site.state === "success") {
     UserService.Instance.myUserInfo = site.data.my_user;
-    updateDataBsTheme(site.data);
+    refreshTheme();
   }
 
-  const { prev } = getLoginQueryParams();
+  const { prev } = i.props;
 
   prev
     ? i.props.history.replace(prev)
@@ -77,7 +82,15 @@ async function handleLoginSubmit(i: Login, event: any) {
         if (loginRes.err.message === "missing_totp_token") {
           i.setState({ show2faModal: true });
         } else {
-          toast(I18NextService.i18n.t(loginRes.err.message), "danger");
+          // TODO: We shouldn't be passing error messages as args into i18next
+          toast(
+            I18NextService.i18n.t(
+              loginRes.err.message === "registration_application_is_pending"
+                ? "registration_application_pending"
+                : loginRes.err.message,
+            ),
+            "danger",
+          );
         }
 
         i.setState({ loginRes });
@@ -106,10 +119,15 @@ function handleClose2faModal(i: Login) {
   i.setState({ show2faModal: false });
 }
 
-export class Login extends Component<
-  RouteComponentProps<Record<string, never>>,
-  State
-> {
+type LoginRouteProps = RouteComponentProps<Record<string, never>> & LoginProps;
+export type LoginFetchConfig = IRoutePropsWithFetch<
+  RouteData,
+  Record<string, never>,
+  LoginProps
+>;
+
+@simpleScrollMixin
+export class Login extends Component<LoginRouteProps, State> {
   private isoData = setIsoData(this.context);
 
   state: State = {

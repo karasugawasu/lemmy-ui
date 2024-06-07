@@ -4,11 +4,11 @@ import {
   editWith,
   enableDownvotes,
   enableNsfw,
-  getCommentParentId,
   setIsoData,
   updatePersonBlock,
+  voteDisplayMode,
 } from "@utils/app";
-import { restoreScrollPosition, saveScrollPosition } from "@utils/browser";
+import { scrollMixin } from "../mixins/scroll-mixin";
 import {
   capitalizeFirstLetter,
   futureDaysToUnixTime,
@@ -17,12 +17,14 @@ import {
   getQueryString,
   numToSI,
   randomStr,
+  resourcesSettled,
+  bareRoutePush,
 } from "@utils/helpers";
-import { canMod, isBanned } from "@utils/roles";
+import { canMod } from "@utils/roles";
 import type { QueryParams } from "@utils/types";
 import { RouteDataResponse } from "@utils/types";
 import classNames from "classnames";
-import { format, parseISO } from "date-fns";
+import { format } from "date-fns";
 import { NoOptionI18nKeys } from "i18next";
 import { Component, linkEvent } from "inferno";
 import { Link } from "inferno-router";
@@ -35,7 +37,6 @@ import {
   BanPerson,
   BanPersonResponse,
   BlockPerson,
-  CommentId,
   CommentReplyResponse,
   CommentResponse,
   Community,
@@ -55,6 +56,8 @@ import {
   GetPersonDetailsResponse,
   GetSiteResponse,
   LemmyHttp,
+  ListMedia,
+  ListMediaResponse,
   LockPost,
   MarkCommentReplyAsRead,
   MarkPersonMentionAsRead,
@@ -82,7 +85,6 @@ import {
   RequestState,
   wrapClient,
 } from "../../services/HttpService";
-import { setupTippy } from "../../tippy";
 import { toast } from "../../toast";
 import { BannerIconHeader } from "../common/banner-icon-header";
 import { HtmlTags } from "../common/html-tags";
@@ -94,20 +96,28 @@ import { CommunityLink } from "../community/community-link";
 import { PersonDetails } from "./person-details";
 import { PersonListing } from "./person-listing";
 import { getHttpBaseInternal } from "../../utils/env";
+import { IRoutePropsWithFetch } from "../../routes";
+import { MediaUploads } from "../common/media-uploads";
+import { cakeDate } from "@utils/helpers";
+import { isBrowser } from "@utils/browser";
 
 type ProfileData = RouteDataResponse<{
-  personResponse: GetPersonDetailsResponse;
+  personRes: GetPersonDetailsResponse;
+  uploadsRes: ListMediaResponse;
 }>;
 
 interface ProfileState {
   personRes: RequestState<GetPersonDetailsResponse>;
+  // personRes and personDetailsRes point to `===` identical data. This allows
+  // to render the start of the profile while the new details are loading.
+  personDetailsRes: RequestState<GetPersonDetailsResponse>;
+  uploadsRes: RequestState<ListMediaResponse>;
   personBlocked: boolean;
   banReason?: string;
   banExpireDays?: number;
   showBanDialog: boolean;
   removeData: boolean;
   siteRes: GetSiteResponse;
-  finished: Map<CommentId, boolean | undefined>;
   isIsomorphic: boolean;
 }
 
@@ -117,12 +127,15 @@ interface ProfileProps {
   page: number;
 }
 
-function getProfileQueryParams() {
-  return getQueryParams<ProfileProps>({
-    view: getViewFromProps,
-    page: getPageFromString,
-    sort: getSortTypeFromQuery,
-  });
+export function getProfileQueryParams(source?: string): ProfileProps {
+  return getQueryParams<ProfileProps>(
+    {
+      view: getViewFromProps,
+      page: getPageFromString,
+      sort: getSortTypeFromQuery,
+    },
+    source,
+  );
 }
 
 function getSortTypeFromQuery(sort?: string): SortType {
@@ -171,22 +184,38 @@ function isPersonBlocked(personRes: RequestState<GetPersonDetailsResponse>) {
   );
 }
 
-export class Profile extends Component<
-  RouteComponentProps<{ username: string }>,
-  ProfileState
-> {
+type ProfilePathProps = { username: string };
+type ProfileRouteProps = RouteComponentProps<ProfilePathProps> & ProfileProps;
+export type ProfileFetchConfig = IRoutePropsWithFetch<
+  ProfileData,
+  ProfilePathProps,
+  ProfileProps
+>;
+
+@scrollMixin
+export class Profile extends Component<ProfileRouteProps, ProfileState> {
   private isoData = setIsoData<ProfileData>(this.context);
   state: ProfileState = {
     personRes: EMPTY_REQUEST,
+    personDetailsRes: EMPTY_REQUEST,
+    uploadsRes: EMPTY_REQUEST,
     personBlocked: false,
     siteRes: this.isoData.site_res,
     showBanDialog: false,
     removeData: false,
-    finished: new Map(),
     isIsomorphic: false,
   };
 
-  constructor(props: RouteComponentProps<{ username: string }>, context: any) {
+  loadingSettled() {
+    return resourcesSettled([
+      this.state.personRes,
+      this.props.view === PersonDetailsView.Uploads
+        ? this.state.uploadsRes
+        : this.state.personDetailsRes,
+    ]);
+  }
+
+  constructor(props: ProfileRouteProps, context: any) {
     super(props, context);
 
     this.handleSortChange = this.handleSortChange.bind(this);
@@ -226,43 +255,110 @@ export class Profile extends Component<
 
     // Only fetch the data if coming from another route
     if (FirstLoadService.isFirstLoad) {
-      const personRes = this.isoData.routeData.personResponse;
+      const personRes = this.isoData.routeData.personRes;
+      const uploadsRes = this.isoData.routeData.uploadsRes;
       this.state = {
         ...this.state,
         personRes,
+        personDetailsRes: personRes,
+        uploadsRes,
         isIsomorphic: true,
         personBlocked: isPersonBlocked(personRes),
       };
     }
   }
 
-  async componentDidMount() {
-    if (!this.state.isIsomorphic) {
-      await this.fetchUserData();
+  async componentWillMount() {
+    if (!this.state.isIsomorphic && isBrowser()) {
+      await this.fetchUserData(this.props, true);
     }
-    setupTippy();
   }
 
-  componentWillUnmount() {
-    saveScrollPosition(this.context);
+  componentWillReceiveProps(nextProps: ProfileRouteProps) {
+    // Overview, Posts and Comments views can use the same data.
+    const sharedViewTypes = [nextProps.view, this.props.view].every(
+      v =>
+        v === PersonDetailsView.Overview ||
+        v === PersonDetailsView.Posts ||
+        v === PersonDetailsView.Comments,
+    );
+
+    const reload = bareRoutePush(this.props, nextProps);
+
+    const newUsername =
+      nextProps.match.params.username !== this.props.match.params.username;
+
+    if (
+      (nextProps.view !== this.props.view && !sharedViewTypes) ||
+      nextProps.sort !== this.props.sort ||
+      nextProps.page !== this.props.page ||
+      newUsername ||
+      reload
+    ) {
+      this.fetchUserData(nextProps, reload || newUsername);
+    }
   }
 
-  async fetchUserData() {
-    const { page, sort, view } = getProfileQueryParams();
+  fetchUploadsToken?: symbol;
+  async fetchUploads(props: ProfileRouteProps) {
+    const token = (this.fetchUploadsToken = Symbol());
+    const { page } = props;
+    this.setState({ uploadsRes: LOADING_REQUEST });
+    const form: ListMedia = {
+      // userId?
+      page,
+      limit: fetchLimit,
+    };
+    const uploadsRes = await HttpService.client.listMedia(form);
+    if (token === this.fetchUploadsToken) {
+      this.setState({ uploadsRes });
+    }
+  }
 
-    this.setState({ personRes: LOADING_REQUEST });
+  fetchUserDataToken?: symbol;
+  async fetchUserData(props: ProfileRouteProps, showBothLoading = false) {
+    const token = (this.fetchUploadsToken = this.fetchUserDataToken = Symbol());
+    const { page, sort, view } = props;
+
+    if (view === PersonDetailsView.Uploads) {
+      this.fetchUploads(props);
+      if (!showBothLoading) {
+        return;
+      }
+      this.setState({
+        personRes: LOADING_REQUEST,
+        personDetailsRes: LOADING_REQUEST,
+      });
+    } else {
+      if (showBothLoading) {
+        this.setState({
+          personRes: LOADING_REQUEST,
+          personDetailsRes: LOADING_REQUEST,
+          uploadsRes: EMPTY_REQUEST,
+        });
+      } else {
+        this.setState({
+          personDetailsRes: LOADING_REQUEST,
+          uploadsRes: EMPTY_REQUEST,
+        });
+      }
+    }
+
     const personRes = await HttpService.client.getPersonDetails({
-      username: this.props.match.params.username,
+      username: props.match.params.username,
       sort,
       saved_only: view === PersonDetailsView.Saved,
       page,
       limit: fetchLimit,
     });
-    this.setState({
-      personRes,
-      personBlocked: isPersonBlocked(personRes),
-    });
-    restoreScrollPosition(this.context);
+
+    if (token === this.fetchUserDataToken) {
+      this.setState({
+        personRes,
+        personDetailsRes: personRes,
+        personBlocked: isPersonBlocked(personRes),
+      });
+    }
   }
 
   get amCurrentUser() {
@@ -278,27 +374,40 @@ export class Profile extends Component<
 
   static async fetchInitialData({
     headers,
-    path,
-    query: { page, sort, view: urlView },
-  }: InitialFetchRequest<QueryParams<ProfileProps>>): Promise<ProfileData> {
+    query: { view, sort, page },
+    match: {
+      params: { username },
+    },
+  }: InitialFetchRequest<
+    ProfilePathProps,
+    ProfileProps
+  >): Promise<ProfileData> {
     const client = wrapClient(
       new LemmyHttp(getHttpBaseInternal(), { headers }),
     );
-    const pathSplit = path.split("/");
 
-    const username = pathSplit[2];
-    const view = getViewFromProps(urlView);
+    let uploadsRes: RequestState<ListMediaResponse> = EMPTY_REQUEST;
+
+    if (view === PersonDetailsView.Uploads) {
+      const form: ListMedia = {
+        page,
+        limit: fetchLimit,
+      };
+      uploadsRes = await client.listMedia(form);
+    }
 
     const form: GetPersonDetails = {
       username: username,
-      sort: getSortTypeFromQuery(sort),
+      sort,
       saved_only: view === PersonDetailsView.Saved,
-      page: getPageFromString(page),
+      page,
       limit: fetchLimit,
     };
+    const personRes = await client.getPersonDetails(form);
 
     return {
-      personResponse: await client.getPersonDetails(form),
+      personRes,
+      uploadsRes,
     };
   }
 
@@ -308,6 +417,25 @@ export class Profile extends Component<
     return res.state === "success"
       ? `@${res.data.person_view.person.name} - ${siteName}`
       : siteName;
+  }
+
+  renderUploadsRes() {
+    switch (this.state.uploadsRes.state) {
+      case "loading":
+        return (
+          <h5>
+            <Spinner large />
+          </h5>
+        );
+      case "success": {
+        const uploadsRes = this.state.uploadsRes.data;
+        return (
+          <div>
+            <MediaUploads uploads={uploadsRes} />
+          </div>
+        );
+      }
+    }
   }
 
   renderPersonRes() {
@@ -321,7 +449,11 @@ export class Profile extends Component<
       case "success": {
         const siteRes = this.state.siteRes;
         const personRes = this.state.personRes.data;
-        const { page, sort, view } = getProfileQueryParams();
+        const { page, sort, view } = this.props;
+
+        const personDetailsState = this.state.personDetailsRes.state;
+        const personDetailsRes =
+          personDetailsState === "success" && this.state.personDetailsRes.data;
 
         return (
           <div className="row">
@@ -340,49 +472,60 @@ export class Profile extends Component<
 
               {this.selects}
 
-              <PersonDetails
-                personRes={personRes}
-                admins={siteRes.admins}
-                sort={sort}
-                page={page}
-                limit={fetchLimit}
-                finished={this.state.finished}
-                enableDownvotes={enableDownvotes(siteRes)}
-                enableNsfw={enableNsfw(siteRes)}
-                view={view}
-                onPageChange={this.handlePageChange}
-                allLanguages={siteRes.all_languages}
-                siteLanguages={siteRes.discussion_languages}
-                // TODO all the forms here
-                onSaveComment={this.handleSaveComment}
-                onBlockPerson={this.handleBlockPersonAlt}
-                onDeleteComment={this.handleDeleteComment}
-                onRemoveComment={this.handleRemoveComment}
-                onCommentVote={this.handleCommentVote}
-                onCommentReport={this.handleCommentReport}
-                onDistinguishComment={this.handleDistinguishComment}
-                onAddModToCommunity={this.handleAddModToCommunity}
-                onAddAdmin={this.handleAddAdmin}
-                onTransferCommunity={this.handleTransferCommunity}
-                onPurgeComment={this.handlePurgeComment}
-                onPurgePerson={this.handlePurgePerson}
-                onCommentReplyRead={this.handleCommentReplyRead}
-                onPersonMentionRead={this.handlePersonMentionRead}
-                onBanPersonFromCommunity={this.handleBanFromCommunity}
-                onBanPerson={this.handleBanPerson}
-                onCreateComment={this.handleCreateComment}
-                onEditComment={this.handleEditComment}
-                onPostEdit={this.handlePostEdit}
-                onPostVote={this.handlePostVote}
-                onPostReport={this.handlePostReport}
-                onLockPost={this.handleLockPost}
-                onDeletePost={this.handleDeletePost}
-                onRemovePost={this.handleRemovePost}
-                onSavePost={this.handleSavePost}
-                onPurgePost={this.handlePurgePost}
-                onFeaturePost={this.handleFeaturePost}
-                onMarkPostAsRead={() => {}}
-              />
+              {this.renderUploadsRes()}
+
+              {personDetailsState === "loading" &&
+              this.props.view !== PersonDetailsView.Uploads ? (
+                <h5>
+                  <Spinner large />
+                </h5>
+              ) : (
+                personDetailsRes && (
+                  <PersonDetails
+                    personRes={personDetailsRes}
+                    admins={siteRes.admins}
+                    sort={sort}
+                    page={page}
+                    limit={fetchLimit}
+                    enableDownvotes={enableDownvotes(siteRes)}
+                    voteDisplayMode={voteDisplayMode(siteRes)}
+                    enableNsfw={enableNsfw(siteRes)}
+                    view={view}
+                    onPageChange={this.handlePageChange}
+                    allLanguages={siteRes.all_languages}
+                    siteLanguages={siteRes.discussion_languages}
+                    // TODO all the forms here
+                    onSaveComment={this.handleSaveComment}
+                    onBlockPerson={this.handleBlockPersonAlt}
+                    onDeleteComment={this.handleDeleteComment}
+                    onRemoveComment={this.handleRemoveComment}
+                    onCommentVote={this.handleCommentVote}
+                    onCommentReport={this.handleCommentReport}
+                    onDistinguishComment={this.handleDistinguishComment}
+                    onAddModToCommunity={this.handleAddModToCommunity}
+                    onAddAdmin={this.handleAddAdmin}
+                    onTransferCommunity={this.handleTransferCommunity}
+                    onPurgeComment={this.handlePurgeComment}
+                    onPurgePerson={this.handlePurgePerson}
+                    onCommentReplyRead={this.handleCommentReplyRead}
+                    onPersonMentionRead={this.handlePersonMentionRead}
+                    onBanPersonFromCommunity={this.handleBanFromCommunity}
+                    onBanPerson={this.handleBanPerson}
+                    onCreateComment={this.handleCreateComment}
+                    onEditComment={this.handleEditComment}
+                    onPostEdit={this.handlePostEdit}
+                    onPostVote={this.handlePostVote}
+                    onPostReport={this.handlePostReport}
+                    onLockPost={this.handleLockPost}
+                    onDeletePost={this.handleDeletePost}
+                    onRemovePost={this.handleRemovePost}
+                    onSavePost={this.handleSavePost}
+                    onPurgePost={this.handlePurgePost}
+                    onFeaturePost={this.handleFeaturePost}
+                    onMarkPostAsRead={() => {}}
+                  />
+                )
+              )}
             </div>
 
             <div className="col-12 col-md-4">
@@ -405,17 +548,18 @@ export class Profile extends Component<
 
   get viewRadios() {
     return (
-      <div className="btn-group btn-group-toggle flex-wrap mb-2" role="group">
+      <div className="btn-group btn-group-toggle flex-wrap" role="group">
         {this.getRadio(PersonDetailsView.Overview)}
         {this.getRadio(PersonDetailsView.Comments)}
         {this.getRadio(PersonDetailsView.Posts)}
         {this.amCurrentUser && this.getRadio(PersonDetailsView.Saved)}
+        {this.getRadio(PersonDetailsView.Uploads)}
       </div>
     );
   }
 
   getRadio(view: PersonDetailsView) {
-    const { view: urlView } = getProfileQueryParams();
+    const { view: urlView } = this.props;
     const active = view === urlView;
     const radioId = randomStr();
 
@@ -442,24 +586,35 @@ export class Profile extends Component<
   }
 
   get selects() {
-    const { sort } = getProfileQueryParams();
+    const { sort, view } = this.props;
     const { username } = this.props.match.params;
 
-    const profileRss = `/feeds/u/${username}.xml?sort=${sort}`;
+    const profileRss = `/feeds/u/${username}.xml${getQueryString({ sort })}`;
 
     return (
-      <div className="mb-2">
-        <span className="me-3">{this.viewRadios}</span>
-        <SortSelect
-          sort={sort}
-          onChange={this.handleSortChange}
-          hideHot
-          hideMostComments
-        />
-        <a href={profileRss} rel={relTags} title="RSS">
-          <Icon icon="rss" classes="text-muted small mx-2" />
-        </a>
-        <link rel="alternate" type="application/atom+xml" href={profileRss} />
+      <div className="row align-items-center mb-3 g-3">
+        <div className="col-auto">{this.viewRadios}</div>
+        <div className="col-auto">
+          <SortSelect
+            sort={sort}
+            onChange={this.handleSortChange}
+            hideHot
+            hideMostComments
+          />
+        </div>
+        {/* Don't show the rss feed for the Saved view, as that's not implemented.*/}
+        {view !== PersonDetailsView.Saved && (
+          <div className="col-auto">
+            <a href={profileRss} rel={relTags} title="RSS">
+              <Icon icon="rss" classes="text-muted small ps-0" />
+            </a>
+            <link
+              rel="alternate"
+              type="application/atom+xml"
+              href={profileRss}
+            />
+          </div>
+        )}
       </div>
     );
   }
@@ -474,7 +629,7 @@ export class Profile extends Component<
     return (
       pv && (
         <div>
-          {!isBanned(pv.person) && (
+          {!pv.person.banned && (
             <BannerIconHeader
               banner={pv.person.banner}
               icon={pv.person.avatar}
@@ -500,7 +655,7 @@ export class Profile extends Component<
                     <li className="list-inline-item">
                       <UserBadges
                         classNames="ms-1"
-                        isBanned={isBanned(pv.person)}
+                        isBanned={pv.person.banned}
                         isDeleted={pv.person.deleted}
                         isAdmin={pv.is_admin}
                         isBot={pv.person.bot_account}
@@ -560,7 +715,7 @@ export class Profile extends Component<
                 {canMod(pv.person.id, undefined, admins) &&
                   !pv.is_admin &&
                   !showBanDialog &&
-                  (!isBanned(pv.person) ? (
+                  (!pv.person.banned ? (
                     <button
                       className={
                         "d-flex align-self-start btn btn-secondary me-2"
@@ -586,7 +741,9 @@ export class Profile extends Component<
                 <div className="d-flex align-items-center mb-2">
                   <div
                     className="md-div"
-                    dangerouslySetInnerHTML={mdToHtml(pv.person.bio)}
+                    dangerouslySetInnerHTML={mdToHtml(pv.person.bio, () =>
+                      this.forceUpdate(),
+                    )}
                   />
                 </div>
               )}
@@ -618,7 +775,7 @@ export class Profile extends Component<
                 <Icon icon="cake" />
                 <span className="ms-2">
                   {I18NextService.i18n.t("cake_day_title")}{" "}
-                  {format(parseISO(pv.person.published), "PPP")}
+                  {format(cakeDate(pv.person.published), "PPP")}
                 </span>
               </div>
               {!UserService.Instance.myUserInfo && (
@@ -710,23 +867,23 @@ export class Profile extends Component<
     );
   }
 
-  async updateUrl({ page, sort, view }: Partial<ProfileProps>) {
+  async updateUrl(props: Partial<ProfileRouteProps>) {
     const {
-      page: urlPage,
-      sort: urlSort,
-      view: urlView,
-    } = getProfileQueryParams();
+      page,
+      sort,
+      view,
+      match: {
+        params: { username },
+      },
+    } = { ...this.props, ...props };
 
     const queryParams: QueryParams<ProfileProps> = {
-      page: (page ?? urlPage).toString(),
-      sort: sort ?? urlSort,
-      view: view ?? urlView,
+      page: page?.toString(),
+      sort,
+      view,
     };
 
-    const { username } = this.props.match.params;
-
     this.props.history.push(`/u/${username}${getQueryString(queryParams)}`);
-    await this.fetchUserData();
   }
 
   handlePageChange(page: number) {
@@ -1016,7 +1173,6 @@ export class Profile extends Component<
           res.data.comment_view,
           s.personRes.data.comments,
         );
-        s.finished.set(res.data.comment_view.comment.id, true);
       }
       return s;
     });
@@ -1038,11 +1194,6 @@ export class Profile extends Component<
     this.setState(s => {
       if (s.personRes.state === "success" && res.state === "success") {
         s.personRes.data.comments.unshift(res.data.comment_view);
-        // Set finished for the parent
-        s.finished.set(
-          getCommentParentId(res.data.comment_view.comment) ?? 0,
-          true,
-        );
       }
       return s;
     });

@@ -6,6 +6,7 @@ import {
   voteDisplayMode,
 } from "@utils/app";
 import {
+  bareRoutePush,
   getIdFromString,
   getQueryParams,
   getQueryString,
@@ -80,12 +81,17 @@ function fetchCommunitiesForOptions(client: WrappedLemmyHttp) {
   return client.listCommunities({ limit: 30, sort: "TopMonth", type_: "All" });
 }
 
+function stringAsQueryParam(param?: string) {
+  return (param?.length ?? 0) > 0 ? param : undefined;
+}
+
 interface CreatePostState {
   siteRes: GetSiteResponse;
   loading: boolean;
   selectedCommunityChoice?: Choice;
   initialCommunitiesRes: RequestState<ListCommunitiesResponse>;
   isIsomorphic: boolean;
+  resetCounter: number; // resets PostForm when changed
 }
 
 type CreatePostPathProps = Record<string, never>;
@@ -108,6 +114,7 @@ export class CreatePost extends Component<
     loading: false,
     initialCommunitiesRes: EMPTY_REQUEST,
     isIsomorphic: false,
+    resetCounter: 0,
   };
 
   constructor(props: CreatePostRouteProps, context: any) {
@@ -123,6 +130,7 @@ export class CreatePost extends Component<
     this.handleNsfwChange = this.handleNsfwChange.bind(this);
     this.handleThumbnailUrlBlur = this.handleThumbnailUrlBlur.bind(this);
     this.handleAltTextBlur = this.handleAltTextBlur.bind(this);
+    this.handleCopySuggestedTitle = this.handleCopySuggestedTitle.bind(this);
 
     // Only fetch the data if coming from another routeupdate
     if (FirstLoadService.isFirstLoad) {
@@ -186,6 +194,27 @@ export class CreatePost extends Component<
           loading: false,
         });
       }
+
+      const locationState = this.props.history.location.state as
+        | CrossPostParams
+        | undefined;
+      if (locationState) {
+        this.updateUrl({
+          title: locationState.name,
+          url: locationState.url,
+          body: locationState.body,
+        });
+        this.setState(s => ({ resetCounter: s.resetCounter + 1 }));
+      }
+    }
+  }
+
+  componentWillReceiveProps(nextProps: CreatePostRouteProps) {
+    if (bareRoutePush(this.props, nextProps)) {
+      this.setState(s => ({ resetCounter: s.resetCounter + 1 }));
+    }
+    if (this.props.communityId !== nextProps.communityId) {
+      this.fetchCommunity(nextProps);
     }
   }
 
@@ -207,15 +236,10 @@ export class CreatePost extends Component<
       url,
     } = this.props;
 
-    // Only use the name, url, and body from this
-    const locationState = this.props.history.location.state as
-      | CrossPostParams
-      | undefined;
-
     const params: PostFormParams = {
-      name: title || locationState?.name,
-      url: url || locationState?.url,
-      body: body || locationState?.body,
+      name: title,
+      url,
+      body,
       community_id: communityId,
       custom_thumbnail: customThumbnailUrl,
       language_id: languageId,
@@ -232,6 +256,7 @@ export class CreatePost extends Component<
           <div id="createPostForm" className="col-12 col-lg-6 offset-lg-3 mb-4">
             <h1 className="h4 mb-4">{I18NextService.i18n.t("create_post")}</h1>
             <PostForm
+              key={this.state.resetCounter}
               onCreate={this.handlePostCreate}
               params={params}
               enableDownvotes={enableDownvotes(siteRes)}
@@ -253,6 +278,7 @@ export class CreatePost extends Component<
               onUrlBlur={this.handleUrlBlur}
               onThumbnailUrlBlur={this.handleThumbnailUrlBlur}
               onNsfwChange={this.handleNsfwChange}
+              onCopySuggestedTitle={this.handleCopySuggestedTitle}
             />
           </div>
         </div>
@@ -276,14 +302,14 @@ export class CreatePost extends Component<
     };
 
     const createPostQueryParams: QueryParams<CreatePostProps> = {
-      body,
+      body: stringAsQueryParam(body),
       communityId: communityId?.toString(),
-      customThumbnailUrl,
+      customThumbnailUrl: stringAsQueryParam(customThumbnailUrl),
       languageId: languageId?.toString(),
-      title,
+      title: stringAsQueryParam(title),
       nsfw,
-      url,
-      altText,
+      url: stringAsQueryParam(url),
+      altText: stringAsQueryParam(altText),
     };
 
     this.props.history.replace({
@@ -326,6 +352,10 @@ export class CreatePost extends Component<
 
   handleAltTextBlur(altText: string) {
     this.updateUrl({ altText });
+  }
+
+  handleCopySuggestedTitle(url: string, title: string) {
+    this.updateUrl({ url, title });
   }
 
   async handlePostCreate(form: CreatePostI, bypassNavWarning: () => void) {

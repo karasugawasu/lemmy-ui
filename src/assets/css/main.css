@@ -607,3 +607,6 @@ br.big {
   margin-bottom: 0.2em;
   color: var(--bs-gray);
 }
+.md-div video {
+  width: auto;
+}

@@ -76,8 +76,6 @@ export class MarkdownTextArea extends Component<
   private id = `markdown-textarea-${randomStr()}`;
   private formId = `markdown-form-${randomStr()}`;
 
-  private tribute: any;
-
   state: MarkdownTextAreaState = {
     content: this.props.initialContent,
     languageId: this.props.initialLanguageId,
@@ -91,26 +89,25 @@ export class MarkdownTextArea extends Component<
 
     this.handleLanguageChange = this.handleLanguageChange.bind(this);
     this.handleEmoji = this.handleEmoji.bind(this);
-
-    if (isBrowser()) {
-      this.tribute = setupTribute();
-    }
   }
 
-  componentDidMount() {
-    const textarea: any = document.getElementById(this.id);
-    if (textarea) {
-      autosize(textarea);
-      this.tribute.attach(textarea);
-      textarea.addEventListener("tribute-replaced", () => {
-        this.setState({ content: textarea.value });
-        autosize.update(textarea);
-      });
+  async componentDidMount() {
+    if (isBrowser()) {
+      const tribute = await setupTribute();
+      const textarea: any = document.getElementById(this.id);
+      if (textarea) {
+        autosize(textarea);
+        tribute.attach(textarea);
+        textarea.addEventListener("tribute-replaced", () => {
+          this.setState({ content: textarea.value });
+          autosize.update(textarea);
+        });
 
-      this.quoteInsert();
+        this.quoteInsert();
 
-      if (this.props.focus) {
-        textarea.focus();
+        if (this.props.focus) {
+          textarea.focus();
+        }
       }
     }
   }
@@ -226,6 +223,7 @@ export class MarkdownTextArea extends Component<
                     this.props.maxLength ?? markdownFieldCharacterLimit
                   }
                   placeholder={this.props.placeholder}
+                  spellCheck
                 />
                 {this.state.previewMode && this.state.content && (
                   <div
@@ -259,29 +257,14 @@ export class MarkdownTextArea extends Component<
           </div>
 
           <div className="col-12 d-flex align-items-center flex-wrap mt-2">
-            {this.props.showLanguage && (
-              <LanguageSelect
-                iconVersion
-                allLanguages={this.props.allLanguages}
-                selectedLanguageIds={
-                  languageId ? Array.of(languageId) : undefined
-                }
-                siteLanguages={this.props.siteLanguages}
-                onChange={this.handleLanguageChange}
-                disabled={this.isDisabled}
-              />
-            )}
-
-            {/* A flex expander */}
-            <div className="flex-grow-1"></div>
-
-            {this.props.replyType && (
+            {this.props.buttonTitle && (
               <button
-                type="button"
+                type="submit"
                 className="btn btn-sm btn-secondary ms-2"
-                onClick={linkEvent(this, this.handleReplyCancel)}
+                disabled={this.isDisabled || !this.state.content}
               >
-                {I18NextService.i18n.t("cancel")}
+                {this.state.loading && <Spinner className="me-1" />}
+                {this.props.buttonTitle}
               </button>
             )}
             <button
@@ -296,15 +279,30 @@ export class MarkdownTextArea extends Component<
                 ? I18NextService.i18n.t("edit")
                 : I18NextService.i18n.t("preview")}
             </button>
-            {this.props.buttonTitle && (
+            {this.props.replyType && (
               <button
-                type="submit"
+                type="button"
                 className="btn btn-sm btn-secondary ms-2"
-                disabled={this.isDisabled || !this.state.content}
+                onClick={linkEvent(this, this.handleReplyCancel)}
               >
-                {this.state.loading && <Spinner className="me-1" />}
-                {this.props.buttonTitle}
+                {I18NextService.i18n.t("cancel")}
               </button>
+            )}
+
+            {/* A flex expander */}
+            <div className="flex-grow-1"></div>
+
+            {this.props.showLanguage && (
+              <LanguageSelect
+                iconVersion
+                allLanguages={this.props.allLanguages}
+                selectedLanguageIds={
+                  languageId ? Array.of(languageId) : undefined
+                }
+                siteLanguages={this.props.siteLanguages}
+                onChange={this.handleLanguageChange}
+                disabled={this.isDisabled}
+              />
             )}
           </div>
         </div>
@@ -451,7 +449,7 @@ export class MarkdownTextArea extends Component<
             }));
           }),
         );
-      } catch (e) {
+      } catch {
         errorOccurred = true;
       }
     }
@@ -762,7 +760,9 @@ export class MarkdownTextArea extends Component<
   getSelectedText(): string {
     const { selectionStart: start, selectionEnd: end } =
       document.getElementById(this.id) as any;
-    return start !== end ? this.state.content?.substring(start, end) ?? "" : "";
+    return start !== end
+      ? (this.state.content?.substring(start, end) ?? "")
+      : "";
   }
 
   get isDisabled() {

@@ -51,7 +51,7 @@ import { CommunityLink } from "../community/community-link";
 import { PersonListing } from "../person/person-listing";
 import { CommentForm } from "./comment-form";
 import { CommentNodes } from "./comment-nodes";
-import { BanUpdateForm } from "../common/mod-action-form-modal";
+import { BanUpdateForm } from "../common/modal/mod-action-form-modal";
 import CommentActionDropdown from "../common/content-actions/comment-action-dropdown";
 import { RequestState } from "../../services/HttpService";
 import { VoteDisplay } from "../common/vote-display";
@@ -294,7 +294,7 @@ export class CommentNode extends Component<CommentNodeProps, CommentNodeState> {
                     />
                   )}
                 </div>
-                <div className="comment-bottom-btns d-flex justify-content-between justify-content-lg-start flex-wrap text-muted fw-bold mt-1">
+                <div className="comment-bottom-btns d-flex justify-content-start column-gap-1.5 flex-wrap text-muted fw-bold mt-1 align-items-center">
                   {this.props.showContext && this.getLinkButton()}
                   {this.props.markable && (
                     <button

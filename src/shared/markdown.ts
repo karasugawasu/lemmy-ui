@@ -1,5 +1,4 @@
 import { communitySearch, personSearch } from "@utils/app";
-import { isBrowser } from "@utils/browser";
 import { debounce, groupBy } from "@utils/helpers";
 import { CommunityTribute, PersonTribute } from "@utils/types";
 import { Picker } from "emoji-mart";
@@ -26,7 +25,7 @@ import markdown_it_mark from "markdown-it-mark";
 import markdown_it_mathjax3 from "markdown-it-mathjax3";
 import markdown_it_table_of_contents from "markdown-it-table-of-contents";
 
-export let Tribute: any;
+let Tribute: any;
 
 export let md: MarkdownIt = new MarkdownIt();
 
@@ -46,10 +45,6 @@ export let customEmojisLookup: Map<string, CustomEmojiView> = new Map<
   string,
   CustomEmojiView
 >();
-
-if (isBrowser()) {
-  Tribute = require("tributejs");
-}
 
 export function mdToHtml(text: string, rerender: () => void) {
   return { __html: lazyHighlightjs.render(md, text, rerender) };
@@ -386,6 +381,7 @@ export function setupEmojiDataModel(custom_emoji_views: CustomEmojiView[]) {
     custom_emoji_views,
     x => x.custom_emoji.category,
   );
+  customEmojis.length = 0;
   for (const [category, emojis] of Object.entries(groupedEmojis)) {
     customEmojis.push({
       id: category,
@@ -469,7 +465,13 @@ export function getEmojiMart(
   return new Picker(pickerOptions);
 }
 
-export function setupTribute() {
+export async function setupTribute() {
+  // eslint-disable-next-line eqeqeq
+  if (Tribute == null) {
+    console.debug("Tribute is null, importing...");
+    Tribute = (await import("tributejs")).default;
+  }
+
   return new Tribute({
     noMatchTemplate: function () {
       return "";
